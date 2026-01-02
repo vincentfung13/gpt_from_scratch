@@ -117,11 +117,9 @@ def _pre_tokenization_worker(
     for sub_chunk in re.split(pattern, chunk_content):
         # Run pre-tokenization and count each pre-token
         for match in re.finditer(PRE_TOKENIZATION_PATTERN, sub_chunk):
-            pre_token_bytes_tuple = tuple([ch.encode("utf-8") for ch in match.group()])
+            # Encode word to bytes, then split into individual bytes (byte-level BPE)
+            word_bytes = match.group().encode("utf-8")
+            pre_token_bytes_tuple = tuple(bytes([i]) for i in word_bytes)
             pre_token_counter[pre_token_bytes_tuple] += 1
 
     return pre_token_counter
-
-
-if __name__ == "__main__":
-    print(_pre_tokenization_worker("data/TinyStoriesV2-GPT4-valid.txt", 0, 4096))

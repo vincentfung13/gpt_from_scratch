@@ -94,14 +94,15 @@ class BPETokenizer:
             file_split_token: Special token used to split the file into chunks safely.
         """
         # Initialize vocabulary
-        # Step 1: Add special tokens first (they get the lowest IDs)
+        # Step 1: Add all 256 possible byte values as base tokens (IDs 0-255)
         vocab: Dict[int, bytes] = {}
-        for special_token in special_tokens:
-            vocab[len(vocab)] = special_token.encode("utf-8")
-
-        # Step 2: Add all 256 possible byte values as base tokens
         for byte_ind in range(256):
-            vocab[len(vocab)] = bytes([byte_ind])
+            vocab[byte_ind] = bytes([byte_ind])
+
+        # Step 2: Add special tokens (they get IDs 256+)
+        for i, special_token in enumerate(special_tokens):
+            token_id = 256 + i
+            vocab[token_id] = special_token.encode("utf-8")
 
         # Run pre-tokenization to split text into chunks and count occurrences
         # Returns a Counter mapping pre-token tuples (of bytes) to their counts
