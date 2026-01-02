@@ -1,6 +1,5 @@
 from typing import List, Dict, Tuple
 from collections import Counter
-import heapq
 
 from gpt_from_scratch.tokenization.pre_tokenization import run_pre_tokenization
 
@@ -33,7 +32,7 @@ class BPETokenizer:
         pre_token_counts = run_pre_tokenization(
             input_file=input_path,
             num_chunks=num_chunks,
-            chunk_split_special_token=file_split_token.encode("utf-8"),
+            chunk_split_special_token=file_split_token,
             special_tokens=special_tokens,
         )
 
@@ -55,10 +54,11 @@ class BPETokenizer:
 
             # 2. Find pair with max freq to merge
             # and update merges and vocab
-            pair_to_merge = sorted(max_freq_pairs, reverse=True)[0]
+            pair_to_merge = max(max_freq_pairs)
             new_token_id = len(vocab)
             merges.append(pair_to_merge)
-            vocab[new_token_id] = pair_to_merge[0] + pair_to_merge[1]
+            merged_token = pair_to_merge[0] + pair_to_merge[1]
+            vocab[new_token_id] = merged_token
 
             # 3. Perform the merge on pre-tokens
             new_pre_token_counts = {}
@@ -76,7 +76,7 @@ class BPETokenizer:
                         and (token_list[i], token_list[i + 1]) == pair_to_merge
                     ):
                         # Merge: add the merged token bytes and skip the next byte
-                        merged_list.append(pair_to_merge[0] + pair_to_merge[1])
+                        merged_list.append(merged_token)
                         i += 2
                     else:
                         # Keep the current byte

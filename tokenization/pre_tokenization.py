@@ -13,15 +13,17 @@ PRE_TOKENIZATION_PATTERN = (
 def run_pre_tokenization(
     input_file: str,
     num_chunks: int = 12,
-    chunk_split_special_token: bytes = b"<|endoftext|>",
-    special_tokens: List[bytes] = ["<|endoftext|>"],
+    chunk_split_special_token: str = "<|endoftext|>",
+    special_tokens: List[str] = ["<|endoftext|>"],
 ):
     # 1. Chunk up the input file
     # 2. Pre-tokenize per file
     # 3. Aggregate pre-token counts
 
     with open(input_file, "rb") as fb:
-        boundaries = _find_chunk_boundaries(fb, num_chunks, chunk_split_special_token)
+        boundaries = _find_chunk_boundaries(
+            fb, num_chunks, chunk_split_special_token.encode("utf-8")
+        )
 
     # Process chunks in parallel
     pre_token_counter = Counter()
@@ -100,7 +102,7 @@ def _pre_tokenization_worker(
     file_path: str,
     chunk_start_pos: int,
     chunk_end_pos: int,
-    special_tokens: List[bytes] = ["<|endoftext|>"],
+    special_tokens: List[str] = ["<|endoftext|>"],
 ):
     # 1. Read file content
     with open(file_path, "rb") as file:
@@ -113,7 +115,7 @@ def _pre_tokenization_worker(
     pre_token_counter = Counter()
     for sub_chunk in re.split(r"|".join(special_tokens), chunk_content):
         # Run pre-tokenization and count each pre-token
-        for match in re.finditer(PRE_TOKENIZATION_PATTERN, chunk_content):
+        for match in re.finditer(PRE_TOKENIZATION_PATTERN, sub_chunk):
             pre_token_bytes_tuple = tuple([ch.encode("utf-8") for ch in match.group()])
             pre_token_counter[pre_token_bytes_tuple] += 1
 
