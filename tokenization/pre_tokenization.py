@@ -4,8 +4,6 @@ from typing import BinaryIO, List, Dict
 from collections import Counter
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
-from gpt_from_scratch.tokenization.utils import boundaries
-
 
 PRE_TOKENIZATION_PATTERN = (
     r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
@@ -18,6 +16,10 @@ def run_pre_tokenization(
     chunk_split_special_token: bytes = b"<|endoftext|>",
     special_tokens: List[bytes] = ["<|endoftext|>"],
 ):
+    # 1. Chunk up the input file
+    # 2. Pre-tokenize per file
+    # 3. Aggregate pre-token counts
+
     with open(input_file, "rb") as fb:
         boundaries = _find_chunk_boundaries(fb, num_chunks, chunk_split_special_token)
 
@@ -112,10 +114,11 @@ def _pre_tokenization_worker(
     for sub_chunk in re.split(r"|".join(special_tokens), chunk_content):
         # Run pre-tokenization and count each pre-token
         for match in re.finditer(PRE_TOKENIZATION_PATTERN, chunk_content):
-            pre_token_counter[match.group().encode("utf-8")] += 1
+            pre_token_bytes_tuple = tuple([ch.encode("utf-8") for ch in match.group()])
+            pre_token_counter[pre_token_bytes_tuple] += 1
 
     return pre_token_counter
 
 
 if __name__ == "__main__":
-    _pre_tokenization_worker("data/TinyStoriesV2-GPT4-valid.txt", 0, 4096)
+    print(_pre_tokenization_worker("data/TinyStoriesV2-GPT4-valid.txt", 0, 4096))
