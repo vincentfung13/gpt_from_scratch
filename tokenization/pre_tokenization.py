@@ -75,70 +75,24 @@ def _find_chunk_boundaries(
     mini_chunk_size = 4096  # Read ahead by 4k bytes at a time
 
     # Refine chunk boundaries to ensure that each segment is not split across different chunks
-    # by reading ahead and backward by 4k bytes at a time and checking for the special token or EOF
+    # by reading ahead by 4k bytes at a time and checking for the special token or EOF
     for bi in range(1, len(chunk_boundaries) - 1):
         initial_position = chunk_boundaries[bi]
+        file.seek(initial_position)  # Start at boundary guess
+        while True:
+            mini_chunk = file.read(mini_chunk_size)  # Read a mini chunk
 
-        # Search forward from initial position
-        forward_position = initial_position
-        forward_found = None
-        file.seek(forward_position)
-        while forward_position < file_size:
-            mini_chunk = file.read(mini_chunk_size)
+            # If EOF, this boundary should be at the end of the file
             if mini_chunk == b"":
+                chunk_boundaries[bi] = file_size
                 break
+
+            # Find the special token in the mini chunk
             found_at = mini_chunk.find(split_special_token)
             if found_at != -1:
-                forward_found = forward_position + found_at
+                chunk_boundaries[bi] = initial_position + found_at
                 break
-            forward_position += mini_chunk_size
-
-        # Search backward from initial position
-        backward_position = initial_position
-        backward_found = None
-        search_limit = max(
-            0, initial_position - mini_chunk_size * 10
-        )  # Limit backward search to avoid going too far
-        while backward_position > search_limit:
-            read_start = max(0, backward_position - mini_chunk_size)
-            file.seek(read_start)
-            # Read chunk that might contain the token, including overlap for tokens spanning boundaries
-            read_size = min(
-                backward_position - read_start + len(split_special_token) - 1,
-                mini_chunk_size + len(split_special_token) - 1,
-            )
-            if read_size <= 0:
-                break
-            mini_chunk = file.read(read_size)
-            if mini_chunk == b"":
-                break
-            # Search backward in this chunk, but only consider tokens before initial_position
-            found_at = mini_chunk.rfind(split_special_token)
-            if found_at != -1:
-                token_pos = read_start + found_at
-                if token_pos < initial_position:
-                    backward_found = token_pos
-                    break
-            if backward_position == read_start:
-                break
-            backward_position = read_start
-
-        # Choose the nearest boundary (forward or backward)
-        if forward_found is not None and backward_found is not None:
-            # Choose the one closer to initial_position
-            if abs(forward_found - initial_position) <= abs(
-                backward_found - initial_position
-            ):
-                chunk_boundaries[bi] = forward_found
-            else:
-                chunk_boundaries[bi] = backward_found
-        elif forward_found is not None:
-            chunk_boundaries[bi] = forward_found
-        elif backward_found is not None:
-            chunk_boundaries[bi] = backward_found
-        else:
-            # If no special token found, keep original boundary or set to file_size
-            chunk_boundaries[bi] = file_size
+            initial_position += mini_chunk_size
 
     # Make sure all boundaries are unique, but might be fewer than desired_num_chunks
     return sorted(set(chunk_boundaries))
@@ -159,7 +113,6 @@ def _pre_tokenization_worker(
 
     # 2. Split by special tokens before pre-tokenizing to protect special token
     pre_token_counter = Counter()
-    # Escape special tokens and join with | (regex OR operator) to match any token
     pattern = r"|".join(re.escape(token) for token in special_tokens)
     for sub_chunk in re.split(pattern, chunk_content):
         # Run pre-tokenization and count each pre-token
