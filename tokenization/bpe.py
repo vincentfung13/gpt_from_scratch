@@ -250,7 +250,9 @@ class BPETokenizer:
         return tokens
 
     def encode_iterable(self, iterable: Iterable[str]) -> Iterator[int]:
-        pass
+        for input_texts in iterable:
+            for token_ind in self.encode(input_texts):
+                yield token_ind
 
     def decode(self, ids: List[int]) -> str:
         """
