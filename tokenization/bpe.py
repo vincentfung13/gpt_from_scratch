@@ -1,9 +1,12 @@
+from collections.abc import Iterator
 import pickle
 import os
-from typing import List, Dict, Tuple, Optional
+import regex as re
+from typing import Iterable, List, Dict, Tuple, Optional
 from collections import Counter
 
 from gpt_from_scratch.tokenization.pre_tokenization import run_pre_tokenization
+from gpt_from_scratch.tokenization import cfg
 
 
 class BPETokenizer:
@@ -107,7 +110,7 @@ class BPETokenizer:
         # Run pre-tokenization to split text into chunks and count occurrences
         # Returns a Counter mapping pre-token tuples (of bytes) to their counts
         pre_token_counts: Counter[Tuple[bytes, ...]] = run_pre_tokenization(
-            input_file=input_path,
+            raw_input=input_path,
             num_chunks=num_chunks,
             chunk_split_special_token=file_split_token,
             special_tokens=special_tokens,
@@ -190,17 +193,58 @@ class BPETokenizer:
         Encode a text string into a list of token IDs.
 
         This method should apply the BPE merges learned during training to convert
-        text into token IDs. Currently not implemented.
+        text into token IDs.
 
         Args:
             text: Input text string to encode.
 
         Returns:
-            List of token IDs corresponding to the encoded text.
-
-        Raises:
-            NotImplementedError: This method is not yet implemented.
+                List of token IDs corresponding to the encoded text.
         """
+        # Create a word to index mapping from vocab
+        get_token_ind = {
+            _bytes: _token_ind for _token_ind, _bytes in self.vocab.items()
+        }
+
+        # Run pre-tokenization
+        # 1. Split by special tokens and also preserve then
+        pattern = r"|".join(re.escape(token) for token in self.special_tokens)
+        split_re = re.compile(f"({pattern})")
+        tokens = []
+        for sub_chunk in split_re.split(text):
+            # Skip special token (directly adding token id)
+            if sub_chunk in self.special_tokens:
+                tokens.append(get_token_ind[sub_chunk])
+                continue
+
+            # Pre-tokenize, apply merges, then find indices
+            for match in re.finditer(cfg.PRE_TOKENIZATION_PATTERN, sub_chunk):
+                # Encode word to bytes, then split into individual bytes (byte-level BPE)
+                word_bytes = match.group().encode("utf-8")
+                token_list = [bytes([i]) for i in word_bytes]
+
+                # Apply merges in-order
+                for pair_to_merge in self.merges:
+                    ind = 0
+                    new_token_list = []
+                    while ind < len(token_list):
+                        if (
+                            ind < len(token_list) - 1
+                            and (token_list[ind], token_list[ind + 1]) == pair_to_merge
+                        ):
+                            new_token_list.append(pair_to_merge)
+                            ind += 2
+                        else:
+                            new_token_list.append(token_list[ind])
+                            ind += 1
+                    token_list = new_token_list
+
+                # Add to token list
+                tokens += [get_token_ind[token] for token in token_list]
+
+        return tokens
+
+    def encode_iterable(self, iterable: Iterable[str]) -> Iterator[int]:
         pass
 
     def decode(self, ids: List[int]) -> str:
@@ -215,11 +259,9 @@ class BPETokenizer:
 
         Returns:
             Decoded text string.
-
-        Raises:
-            NotImplementedError: This method is not yet implemented.
         """
-        pass
+        encoded_results = [self.vocab[_id] for _id in ids]
+        return encoded_results.decode("utf-8", errors="replace")
 
     def save(self, root_dir: str = "tokenizer_checkpoints") -> None:
         """
