@@ -1,10 +1,43 @@
 import os
 import regex as re
-from typing import BinaryIO, List, Union
+from typing import BinaryIO, List, Union, Dict
 from collections import Counter
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
 from gpt_from_scratch.tokenization import cfg
+
+
+def encode_string(
+    input_string: str,
+    get_token_ind: Dict[bytes, int],
+    merges: List[tuple[bytes, bytes]],
+):
+    # Pre-tokenize, apply merges, then find indices
+    tokens = []
+    for match in re.finditer(cfg.PRE_TOKENIZATION_PATTERN, input_string):
+        # Encode word to bytes, then split into individual bytes (byte-level BPE)
+        word_bytes = match.group().encode("utf-8")
+        token_list = [bytes([i]) for i in word_bytes]
+
+        # Apply merges in-order
+        for pair_to_merge in merges:
+            ind = 0
+            new_token_list = []
+            while ind < len(token_list):
+                if (
+                    ind < len(token_list) - 1
+                    and (token_list[ind], token_list[ind + 1]) == pair_to_merge
+                ):
+                    new_token_list.append(pair_to_merge[0] + pair_to_merge[1])
+                    ind += 2
+                else:
+                    new_token_list.append(token_list[ind])
+                    ind += 1
+            token_list = new_token_list
+
+        # Add to token list
+        tokens += [get_token_ind[token] for token in token_list]
+    return tokens
 
 
 def run_pre_tokenization(
@@ -80,7 +113,9 @@ def _pre_tokenize_text(
     """
     pre_token_counter = Counter()
     # Split by special tokens before pre-tokenizing to protect special token
-    pattern = r"|".join(re.escape(token) for token in special_tokens)
+    # Sort special tokens by length (longest first) to handle overlapping tokens correctly
+    sorted_special_tokens = sorted(special_tokens, key=len, reverse=True)
+    pattern = r"|".join(re.escape(token) for token in sorted_special_tokens)
     for sub_chunk in re.split(pattern, text):
         # Run pre-tokenization and count each pre-token
         for match in re.finditer(cfg.PRE_TOKENIZATION_PATTERN, sub_chunk):

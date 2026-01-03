@@ -5,8 +5,8 @@ import regex as re
 from typing import Iterable, List, Dict, Tuple, Optional
 from collections import Counter
 
-from gpt_from_scratch.tokenization.pre_tokenization import run_pre_tokenization
-from gpt_from_scratch.tokenization import cfg
+from gpt_from_scratch.tokenization.tokenization_utils import run_pre_tokenization
+from gpt_from_scratch.tokenization.tokenization_utils import encode_string
 
 
 class BPETokenizer:
@@ -38,17 +38,28 @@ class BPETokenizer:
                            If None, defaults to empty list.
         """
         self.vocab: Dict[int, bytes] = vocab if vocab is not None else {}
+        self.get_token_ind: Dict[bytes, int] = {
+            token: token_ind for token_ind, token in self.vocab.items()
+        }
         self.merges: List[Tuple[bytes, bytes]] = merges if merges is not None else []
         self.special_tokens: List[str] = (
             special_tokens if special_tokens is not None else []
         )
+
+        # Add special token into vocab
+        for special_token in self.special_tokens:
+            special_token = special_token.encode("utf-8")
+            if special_token not in self.get_token_ind:
+                new_token_ind = len(self.vocab)
+                self.vocab[new_token_ind] = special_token
+                self.get_token_ind[special_token] = new_token_ind
 
     @classmethod
     def from_file(
         cls,
         vocab_filepath: str,
         merges_filepath: str,
-        special_tokens: Optional[List[str]] = None,
+        special_tokens: Optional[List[str]] = ["<|endoftext|>"],
     ) -> "BPETokenizer":
         """
         Load a trained tokenizer from pickle files.
@@ -201,46 +212,40 @@ class BPETokenizer:
         Returns:
                 List of token IDs corresponding to the encoded text.
         """
-        # Create a word to index mapping from vocab
-        get_token_ind = {
-            _bytes: _token_ind for _token_ind, _bytes in self.vocab.items()
-        }
-
         # Run pre-tokenization
-        # 1. Split by special tokens and also preserve then
-        pattern = r"|".join(re.escape(token) for token in self.special_tokens)
+        # 1. Split by special tokens and also preserve them
+        # Sort special tokens by length (longest first) to handle overlapping tokens correctly
+        # This ensures that longer special tokens (e.g., "<|endoftext|><|endoftext|>") are
+        # matched before shorter ones (e.g., "<|endoftext|>") when they overlap
+        sorted_special_tokens = sorted(self.special_tokens, key=len, reverse=True)
+        tokens = []
+
+        # If there are no special tokens, process the whole text directly
+        if not sorted_special_tokens:
+            return encode_string(
+                input_string=text, get_token_ind=self.get_token_ind, merges=self.merges
+            )
+
+        # If there are special tokens, split by them first
+        pattern = r"|".join(re.escape(token) for token in sorted_special_tokens)
         split_re = re.compile(f"({pattern})")
         tokens = []
         for sub_chunk in split_re.split(text):
-            # Skip special token (directly adding token id)
-            if sub_chunk in self.special_tokens:
-                tokens.append(get_token_ind[sub_chunk])
+            # Skip empty strings from split
+            if not sub_chunk:
                 continue
 
-            # Pre-tokenize, apply merges, then find indices
-            for match in re.finditer(cfg.PRE_TOKENIZATION_PATTERN, sub_chunk):
-                # Encode word to bytes, then split into individual bytes (byte-level BPE)
-                word_bytes = match.group().encode("utf-8")
-                token_list = [bytes([i]) for i in word_bytes]
+            # Check if this chunk is a special token (directly adding token id)
+            if sub_chunk in self.special_tokens:
+                tokens.append(self.get_token_ind[sub_chunk.encode("utf-8")])
+                continue
 
-                # Apply merges in-order
-                for pair_to_merge in self.merges:
-                    ind = 0
-                    new_token_list = []
-                    while ind < len(token_list):
-                        if (
-                            ind < len(token_list) - 1
-                            and (token_list[ind], token_list[ind + 1]) == pair_to_merge
-                        ):
-                            new_token_list.append(pair_to_merge)
-                            ind += 2
-                        else:
-                            new_token_list.append(token_list[ind])
-                            ind += 1
-                    token_list = new_token_list
-
-                # Add to token list
-                tokens += [get_token_ind[token] for token in token_list]
+            # Pre-tokenize and encode the string
+            tokens += encode_string(
+                input_string=sub_chunk,
+                get_token_ind=self.get_token_ind,
+                merges=self.merges,
+            )
 
         return tokens
 
@@ -260,8 +265,10 @@ class BPETokenizer:
         Returns:
             Decoded text string.
         """
-        encoded_results = [self.vocab[_id] for _id in ids]
-        return encoded_results.decode("utf-8", errors="replace")
+        code_points = []
+        for _id in ids:
+            code_points += list(self.vocab[_id])
+        return bytes(code_points).decode("utf-8", errors="replace")
 
     def save(self, root_dir: str = "tokenizer_checkpoints") -> None:
         """
@@ -301,8 +308,14 @@ class BPETokenizer:
 
 if __name__ == "__main__":
     # Example usage: train a BPE tokenizer on a text corpus
-    bpe = BPETokenizer()
-    bpe.train(
-        "data/TineyStoriesV2-valid-samples.txt",
-        1000,
+    bpe = BPETokenizer.from_file(
+        vocab_filepath="tokenizer_checkpoints/bpe_vocab.pkl",
+        merges_filepath="tokenizer_checkpoints/bpe_merges.pkl",
+    )
+    print(
+        bpe.decode(
+            bpe.encode(
+                "Hello <|endoftext|><|endoftext|> world my name is deep shit <|endoftext|>"
+            )
+        )
     )
