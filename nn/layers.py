@@ -138,22 +138,3 @@ class SwiGLU(nn.Module):
         mul = einsum(silu_w1_x, w3_x, "... d_ff, ... d_ff -> ... d_ff")
         output = einsum(self.w2, mul, "d_model d_ff, ... d_ff -> ... d_model")
         return output
-
-
-class SoftMax(nn.Module):
-    def __init__(self, dim):
-        super().__init__()
-        self.dim = dim
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # x -> (... dim)
-
-        # Compute exp(x) - subtract max first for stability
-        dim_max = x.max(dim=self.dim, keepdim=True).values 
-        x -= dim_max
-        exp_x = x.exp()
-
-        # Compute exp_sum
-        exp_sum = exp_x.sum(dim=self.dim, keepdim=True) 
-
-        return exp_x / exp_sum
