@@ -1,4 +1,3 @@
-import math
 from einops import rearrange, einsum
 
 import torch
@@ -8,48 +7,52 @@ import torch.nn as nn
 class RotaryPositionalEmbedding(nn.Module):
     def __init__(self, theta: float, d_k: int, max_seq_len: int, device=None):
         super().__init__()
-
-        self.theta = theta
+        assert d_k % 2 == 0
         self.d_k = d_k
-        assert self.d_k % 2 == 0
-        self.max_seq_len = max_seq_len
 
-        # Init rotary matrices
-        # R -> (max_seq_len k 2 2)
-        self.R = []
-        for i in range(max_seq_len):
-            R_i = []
-            for k in range(1, self.d_k // 2 + 1):
-                theta_i_k = i / (self.theta ** (2 * k - 2) / self.d_k)
-                R_i_k = [
-                    [math.cos(theta_i_k), -math.sin(theta_i_k)],
-                    [math.sin(theta_i_k), math.cos(theta_i_k)],
-                ]
-                R_i.append(R_i_k)
-            self.R.append(R_i)
+        # ks & inverse_freq -> (d_k_half)
+        # inds -> (max_seq_len)
+        ks = torch.arange(1, d_k // 2 + 1, device=device).float()
+        inverse_freq = 1.0 / (theta ** ((2 * ks - 2) / d_k))
+        inds = torch.arange(0, max_seq_len, device=device).float()
 
-        # Convert to tensor
-        self.R = torch.tensor(self.R, dtype=torch.float32)
-
+        # Init sin and cos cache
+        # compute outer product
+        # freqs -> (max_seq_len, d_k_half)
+        freqs = einsum(inds, inverse_freq, "seq_len, d_k_half -> seq_len d_k_half")
         if device is not None:
-            self.R = self.R.to(device)
+            freqs = freqs.to(device)
+
+        # Cache sin and cos
+        self.register_buffer("sin", freqs.sin())
+        self.register_buffer("cos", freqs.cos())
 
     def forward(self, x: torch.Tensor, token_positions: torch.Tensor) -> torch.Tensor:
         # x -> (... seq_len d_k)
         # token_positions -> (... seq_len)
 
-        # 1. Grab R -> (... seq_len k 2 2)
-        R = self.R[token_positions]
+        # Select sin and cos based on token positions
+        sin_selected = self.sin[token_positions]  # (... seq_len, d_k_half)
+        cos_selected = self.cos[token_positions]  # (... seq_len, d_k_half)
 
-        # 2. Rearrange x (... seq_len d_k -> ... seq_len k 2)
-        x = rearrange(
-            x, "... seq_len (k d2) -> ... seq_len k d2", k=self.d_k // 2, d2=2
+        # Rearrange x into pairs: (..., seq_len, d_k) -> (..., seq_len, d_k_half, 2)
+        x_rearr = rearrange(
+            x,
+            "... seq_len (d_k_half d2) -> ... seq_len d_k_half d2",
+            d_k_half=self.d_k // 2,
+            d2=2,
         )
 
-        # 3. Mul embedding
-        x = einsum(R, x, "... seq_len k d2 d2, ... seq_len k d2 -> ... seq_len k d2")
+        # Extract the two components of each pair
+        x0 = x_rearr[..., 0]  # (..., seq_len, d_k_half)
+        x1 = x_rearr[..., 1]  # (..., seq_len, d_k_half)
 
-        # 4. Restore x (... seq_len k 2 -> ... seq_len d_k)
-        x = rearrange(x, "... seq_len k d2 -> ... seq_len (k d2)")
+        # Apply rotation matrix: [cos -sin] [x0]   = [x0*cos - x1*sin]
+        #                        [sin  cos] [x1]     [x0*sin + x1*cos]
+        x0_new = x0 * cos_selected - x1 * sin_selected
+        x1_new = x0 * sin_selected + x1 * cos_selected
 
-        return x
+        # Stack back and rearrange to original shape
+        return rearrange(
+            [x0_new, x1_new], "d2 ... seq_len d_k_half -> ... seq_len (d_k_half d2)"
+        )
