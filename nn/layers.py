@@ -74,15 +74,15 @@ class RMSNorm(nn.Module):
 
         self.eps = eps
         self.d_model = d_model
-        self.g = nn.Parameter(torch.ones(d_model))
+        self.weight = nn.Parameter(torch.ones(d_model))
 
         # Move to specified device
         if device is not None:
-            self.g = self.g.to(device)
+            self.weight = self.weight.to(device)
 
         # Cast to specified type
         if dtype is not None:
-            self.g = self.g.to(dtype)
+            self.weight = self.weight.to(dtype)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # x -> (b seq d)
@@ -95,7 +95,7 @@ class RMSNorm(nn.Module):
         ).sqrt()
 
         # Divide by RMS and multiply by gain
-        x = einsum(self.g, x / rms, "d, b seq d -> b seq d")
+        x = einsum(self.weight, x / rms, "d, b seq d -> b seq d")
 
         return x.to(in_dtype)
 
