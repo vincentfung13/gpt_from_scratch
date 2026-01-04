@@ -105,7 +105,7 @@ class CausalMultiHeadSelfAttn(nn.Module):
         )
 
         # Compute scaled dot product
-        # agg_v -> (... num_heads seq_len num_heads * d)
+        # agg_v -> (... seq_len num_heads * d)
         agg_v = scaled_dot_product(q, k, v, mask)
         agg_v = rearrange(agg_v, "... num_heads seq_len d -> ... seq_len (num_heads d)")
 
