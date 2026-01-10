@@ -1,5 +1,5 @@
 import math
-from einops import einsum
+from einops import einsum, reduce, rearrange
 
 import torch
 
@@ -16,6 +16,34 @@ def softmax(x: torch.Tensor, dim: int = -1) -> torch.Tensor:
     exp_sum = exp_x.sum(dim=dim, keepdim=True)
 
     return exp_x / exp_sum
+
+
+def cross_entropy(logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+    # logits -> (batch ... vocab_size)
+    # targets -> (batch ...)
+    # Compute log_softmax directly for numerical stability
+    # log_softmax(x) = x - log(sum(exp(x - max(x))))
+    max_logits = reduce(logits, "... vocab_size -> ... ()", reduction="max")
+    logits_shifted = logits - max_logits  # (batch ... vocab_size)
+    log_exp_sum = reduce(
+        logits_shifted.exp(), "... vocab_size -> ... ()", reduction="sum"
+    ).log()
+    log_softmax = logits_shifted - log_exp_sum
+
+    # Directly gather log probabilities for target classes using einops for clarity
+    # Flatten all batch dimensions for gather operation
+    log_softmax_flat = rearrange(log_softmax, "... vocab_size -> (...) vocab_size")
+    targets_flat = rearrange(targets, "... -> (...) 1")
+
+    # Gather the log probabilities for the target classes
+    log_probs_flat = log_softmax_flat.gather(1, targets_flat).squeeze(1)
+
+    # Reshape back to original batch dimensions
+    original_shape = logits.shape[:-1]
+    log_probs = log_probs_flat.view(original_shape)
+    loss = -reduce(log_probs, "... -> ()", reduction="mean")
+
+    return loss
 
 
 def scaled_dot_product(
