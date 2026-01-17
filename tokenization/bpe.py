@@ -2,11 +2,25 @@ from collections.abc import Iterator
 import pickle
 import os
 import regex as re
+import logging
 from typing import Iterable, List, Dict, Tuple, Optional
 from collections import Counter
 
 from gpt_from_scratch.tokenization.tokenization_utils import run_pre_tokenization
 from gpt_from_scratch.tokenization.tokenization_utils import encode_string
+
+logger = logging.getLogger(__name__)
+
+# Configure logging format with human-readable timestamps if not already configured
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
 
 
 class BPETokenizer:
@@ -107,6 +121,11 @@ class BPETokenizer:
             num_chunks: Number of chunks to split the input file for parallel processing.
             file_split_token: Special token used to split the file into chunks safely.
         """
+        logger.info(f"Starting BPE training on {input_path}")
+        logger.info(
+            f"Target vocabulary size: {vocab_size}, Special tokens: {special_tokens}"
+        )
+
         # Initialize vocabulary
         # Step 1: Add all 256 possible byte values as base tokens (IDs 0-255)
         vocab: Dict[int, bytes] = {}
@@ -118,36 +137,53 @@ class BPETokenizer:
             token_id = 256 + i
             vocab[token_id] = special_token.encode("utf-8")
 
+        initial_vocab_size = len(vocab)
+        logger.info(
+            f"Initialized vocabulary with {initial_vocab_size} tokens (256 base bytes + {len(special_tokens)} special tokens)"
+        )
+
         # Run pre-tokenization to split text into chunks and count occurrences
         # Returns a Counter mapping pre-token tuples (of bytes) to their counts
+        logger.info(f"Running pre-tokenization with {num_chunks} chunks...")
         pre_token_counts: Counter[Tuple[bytes, ...]] = run_pre_tokenization(
             raw_input=input_path,
             num_chunks=num_chunks,
             chunk_split_special_token=file_split_token,
             special_tokens=special_tokens,
         )
+        logger.info(
+            f"Pre-tokenization complete. Found {len(pre_token_counts)} unique pre-tokens"
+        )
+
+        # Initialize pre-token counts
+        pair_freq: Counter[Tuple[bytes, bytes]] = Counter()
+        for pre_token, count in pre_token_counts.items():
+            # Skip pre-tokens with less than 2 elements (can't form pairs)
+            if len(pre_token) >= 2:
+                # Count all adjacent pairs in this pre-token, weighted by count
+                for pair in zip(pre_token, pre_token[1:]):
+                    pair_freq[pair] += count
 
         # Run BPE training: iteratively merge most frequent pairs
         # Initialize merges list (initially empty, will be populated during training)
         merges: List[Tuple[bytes, bytes]] = []
 
-        # Continue merging until we reach the target vocabulary size
-        for step in range(vocab_size - len(vocab)):
-            # Step 1: Count frequency of all adjacent byte pairs in pre-tokens
-            pair_freq: Counter[Tuple[bytes, bytes]] = Counter()
-            for pre_token, count in pre_token_counts.items():
-                # Skip pre-tokens with less than 2 elements (can't form pairs)
-                if len(pre_token) < 2:
-                    continue
-                # Count all adjacent pairs in this pre-token, weighted by count
-                for pair in zip(pre_token, pre_token[1:]):
-                    pair_freq[pair] += count
+        total_steps = vocab_size - len(vocab)
+        logger.info(
+            f"Starting BPE merge process. Will perform {total_steps} merge steps to reach vocab size {vocab_size}"
+        )
 
-            # Step 2: Find the pair with maximum frequency to merge
+        # Continue merging until we reach the target vocabulary size
+        for step in range(total_steps):
+            # Step 1: Find the pair with maximum frequency to merge
             # If multiple pairs have the same max frequency, choose lexicographically largest
             if not pair_freq:
                 # No more pairs to merge, stop early
+                logger.warning(
+                    f"No more pairs to merge at step {step + 1}/{total_steps}. Stopping early."
+                )
                 break
+
             max_freq: int = max(pair_freq.values())
             max_freq_pairs: List[Tuple[bytes, bytes]] = [
                 pair for pair, freq in pair_freq.items() if freq == max_freq
@@ -160,23 +196,78 @@ class BPETokenizer:
             merged_token: bytes = pair_to_merge[0] + pair_to_merge[1]
             vocab[new_token_id] = merged_token
 
-            # Step 3: Perform the merge on all pre-tokens
+            # Log progress periodically (every 10% or every 100 steps, whichever is more frequent)
+            progress_interval = max(1, min(100, total_steps // 10))
+            if (step + 1) % progress_interval == 0 or step == 0:
+                progress_pct = (
+                    ((step + 1) / total_steps) * 100 if total_steps > 0 else 0
+                )
+                try:
+                    pair_repr = f"{pair_to_merge[0]!r} + {pair_to_merge[1]!r}"
+                except Exception:
+                    pair_repr = f"bytes({len(pair_to_merge[0])}) + bytes({len(pair_to_merge[1])})"
+                logger.info(
+                    f"Step {step + 1}/{total_steps} ({progress_pct:.1f}%): "
+                    f"Merging pair {pair_repr} (freq={max_freq}) -> token_id={new_token_id}, "
+                    f"vocab_size={len(vocab)}"
+                )
+
+            # Step 3: Perform the merge on all pre-tokens and update pair_freq incrementally
             # Update pre_token_counts by replacing all occurrences of the pair with the merged token
+            # Simultaneously update pair_freq to avoid recalculating from scratch
             new_pre_token_counts: Dict[Tuple[bytes, ...], int] = {}
+            a, b = pair_to_merge
+
             for pre_token, count in pre_token_counts.items():
                 # Convert tuple to list for easier manipulation
                 token_list: List[bytes] = list(pre_token)
 
-                # Merge all occurrences of the pair (greedy left-to-right)
-                i: int = 0
+                # Perform merge and update pair_freq in a single pass (greedy left-to-right)
                 merged_list: List[bytes] = []
+                i: int = 0
                 while i < len(token_list):
                     # Check if current and next byte form the merged pair
                     if (
                         i < len(token_list) - 1
                         and (token_list[i], token_list[i + 1]) == pair_to_merge
                     ):
-                        # Merge: add the merged token bytes and skip the next byte
+                        # Update pair_freq before merging:
+                        # 1. Remove the pair (a, b) we're merging
+                        pair_freq[pair_to_merge] -= count
+                        if pair_freq[pair_to_merge] <= 0:
+                            del pair_freq[pair_to_merge]
+
+                        # 2. If there's a token before 'a', update pairs involving it
+                        # Use merged_list for previous token to handle adjacent merges correctly
+                        if len(merged_list) > 0:
+                            prev_token = merged_list[-1]
+                            # Remove (prev_token, a) pair (if it exists in pair_freq)
+                            old_pair_before = (prev_token, a)
+                            if old_pair_before in pair_freq:
+                                pair_freq[old_pair_before] -= count
+                                if pair_freq[old_pair_before] <= 0:
+                                    del pair_freq[old_pair_before]
+                            # Add (prev_token, merged_token) pair
+                            new_pair_before = (prev_token, merged_token)
+                            pair_freq[new_pair_before] = (
+                                pair_freq.get(new_pair_before, 0) + count
+                            )
+
+                        # 3. If there's a token after 'b', update pairs involving it
+                        if i + 2 < len(token_list):
+                            next_token = token_list[i + 2]
+                            # Remove (b, next_token) pair
+                            old_pair_after = (b, next_token)
+                            pair_freq[old_pair_after] -= count
+                            if pair_freq[old_pair_after] <= 0:
+                                del pair_freq[old_pair_after]
+                            # Add (merged_token, next_token) pair
+                            new_pair_after = (merged_token, next_token)
+                            pair_freq[new_pair_after] = (
+                                pair_freq.get(new_pair_after, 0) + count
+                            )
+
+                        # Perform the merge: add the merged token and skip the next byte
                         merged_list.append(merged_token)
                         i += 2
                     else:
@@ -288,6 +379,7 @@ class BPETokenizer:
         # Create output directory if it doesn't exist
         if not os.path.isdir(root_dir):
             os.makedirs(root_dir)
+            logger.debug(f"Created directory: {root_dir}")
 
         # Define output file paths
         vocab_out_path: str = os.path.join(root_dir, "bpe_vocab.pkl")
@@ -306,6 +398,10 @@ class BPETokenizer:
         with open(special_tokens_path, "w") as st_f:
             for special_token in self.special_tokens:
                 st_f.write(special_token + "\n")
+
+        logger.debug(
+            f"Saved tokenizer files to {root_dir}: vocab ({len(self.vocab)} tokens), merges ({len(self.merges)} merges), special_tokens ({len(self.special_tokens)} tokens)"
+        )
 
 
 if __name__ == "__main__":
