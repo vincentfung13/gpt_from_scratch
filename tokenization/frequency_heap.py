@@ -48,7 +48,11 @@ def _convert_heap_item_to_pair_freq(
     neg_freq, neg_bytes_0, neg_bytes_1 = heap_item
     # Convert tuple of integers back to bytes, negating to reverse the comparison
     # (we negated the bytes when storing to get lexicographically largest on ties)
-    return ((bytes(-b for b in neg_bytes_0), bytes(-b for b in neg_bytes_1)), -neg_freq)
+    # bytes() constructor requires a list/iterable, not a generator directly
+    return (
+        (bytes([-b for b in neg_bytes_0]), bytes([-b for b in neg_bytes_1])),
+        -neg_freq,
+    )
 
 
 def _convert_pair_freq_to_heap_item(

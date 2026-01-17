@@ -182,31 +182,28 @@ class BPETokenizer:
         for step in range(total_steps):
             # Step 1: Find the pair with maximum frequency to merge
             # If multiple pairs have the same max frequency, choose lexicographically largest
-            if not pair_freq:
+            # Optimization: Use most_common() with a reasonable limit, then find lexicographically
+            # largest among pairs with max frequency in a single pass
+            most_common_iter = pair_freq.most_common(min(1000, len(pair_freq)))
+            if not most_common_iter:
                 # No more pairs to merge, stop early
                 logger.warning(
                     f"No more pairs to merge at step {step + 1}/{total_steps}. Stopping early."
                 )
                 break
 
-            # Use most_common(1) which is optimized in Counter, then find lexicographically largest
-            # among pairs with max frequency
-            most_common = pair_freq.most_common(1)
-            if not most_common:
-                break
-            max_freq: int = most_common[0][1]
-            # Find all pairs with max frequency and choose lexicographically largest
-            # Optimization: Iterate through most_common until frequency changes
-            # This is more efficient than scanning all pairs
-            max_freq_pairs: List[Tuple[bytes, bytes]] = [most_common[0][0]]
-            # Get more candidates if needed (up to a reasonable limit to avoid scanning everything)
-            for pair, freq in pair_freq.most_common(min(1000, len(pair_freq))):
-                if freq == max_freq and pair not in max_freq_pairs:
-                    max_freq_pairs.append(pair)
-                elif freq < max_freq:
+            # Get first pair to establish max_freq
+            first_pair, max_freq = most_common_iter[0]
+            pair_to_merge: Tuple[bytes, bytes] = first_pair
+
+            # Iterate through remaining pairs with same frequency, tracking lexicographically largest
+            for pair, freq in most_common_iter[1:]:
+                if freq < max_freq:
                     # Since most_common returns in descending order, we can stop here
                     break
-            pair_to_merge: Tuple[bytes, bytes] = max(max_freq_pairs)
+                # Update if this pair is lexicographically larger
+                if pair > pair_to_merge:
+                    pair_to_merge = pair
 
             # Create new token by concatenating the merged pair
             new_token_id: int = len(vocab)
