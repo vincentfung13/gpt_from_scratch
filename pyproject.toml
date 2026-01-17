@@ -1,7 +1,7 @@
 [project]
-name = "cs336_basics"
-version = "1.0.6"
-description = "CS336 Assignment 1"
+name = "gpt_from_scratch"
+version = "0.0.1"
+description = "Implement GPT from scratch"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -26,7 +26,7 @@ requires = ["uv_build>=0.8.3,<0.9.0"]
 build-backend = "uv_build"
 
 [tool.uv.build-backend]
-module-name = "cs336_basics"
+module-name = "gpt_from_scratch"
 module-root = ""
 
 [tool.uv]

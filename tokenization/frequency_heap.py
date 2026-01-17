@@ -46,13 +46,16 @@ def _convert_heap_item_to_pair_freq(
     heap_item: Tuple[int, Tuple[int, ...], Tuple[int, ...]],
 ) -> Tuple[Tuple[bytes, bytes], int]:
     neg_freq, neg_bytes_0, neg_bytes_1 = heap_item
-    # Convert tuple of integers back to bytes
-    return ((bytes(neg_bytes_0), bytes(neg_bytes_1)), -neg_freq)
+    # Convert tuple of integers back to bytes, negating to reverse the comparison
+    # (we negated the bytes when storing to get lexicographically largest on ties)
+    return ((bytes(-b for b in neg_bytes_0), bytes(-b for b in neg_bytes_1)), -neg_freq)
 
 
 def _convert_pair_freq_to_heap_item(
     pair: Tuple[bytes, bytes], pair_freq: int
 ) -> Tuple[int, Tuple[int, ...], Tuple[int, ...]]:
     # Use negative frequency for max-heap (heapq is min-heap)
-    # Convert bytes to tuple of integers for comparison
-    return (-pair_freq, tuple(pair[0]), tuple(pair[1]))
+    # Negate bytes to get lexicographically largest pair on ties:
+    # When frequencies are equal, min-heap will compare negated byte tuples,
+    # so smallest negated tuple = largest original pair
+    return (-pair_freq, tuple(-b for b in pair[0]), tuple(-b for b in pair[1]))
