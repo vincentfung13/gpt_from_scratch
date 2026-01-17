@@ -4,7 +4,7 @@ import os
 import regex as re
 import logging
 from typing import Iterable, List, Dict, Tuple, Optional
-from collections import Counter
+from collections import Counter, defaultdict
 
 from gpt_from_scratch.tokenization.tokenization_utils import run_pre_tokenization
 from gpt_from_scratch.tokenization.tokenization_utils import encode_string
@@ -157,12 +157,17 @@ class BPETokenizer:
 
         # Initialize pre-token counts
         pair_freq: Counter[Tuple[bytes, bytes]] = Counter()
+        # Build reverse index: map each pair to set of pre-tokens containing it
+        # This allows us to only process relevant pre-tokens during merging
+        pair_to_pre_tokens: Dict[Tuple[bytes, bytes], set] = defaultdict(set)
         for pre_token, count in pre_token_counts.items():
             # Skip pre-tokens with less than 2 elements (can't form pairs)
             if len(pre_token) >= 2:
                 # Count all adjacent pairs in this pre-token, weighted by count
                 for pair in zip(pre_token, pre_token[1:]):
                     pair_freq[pair] += count
+                    # Build reverse index
+                    pair_to_pre_tokens[pair].add(pre_token)
 
         # Run BPE training: iteratively merge most frequent pairs
         # Initialize merges list (initially empty, will be populated during training)
@@ -184,17 +189,29 @@ class BPETokenizer:
                 )
                 break
 
-            max_freq: int = max(pair_freq.values())
-            max_freq_pairs: List[Tuple[bytes, bytes]] = [
-                pair for pair, freq in pair_freq.items() if freq == max_freq
-            ]
+            # Use most_common(1) which is optimized in Counter, then find lexicographically largest
+            # among pairs with max frequency
+            most_common = pair_freq.most_common(1)
+            if not most_common:
+                break
+            max_freq: int = most_common[0][1]
+            # Find all pairs with max frequency and choose lexicographically largest
+            # Optimization: Iterate through most_common until frequency changes
+            # This is more efficient than scanning all pairs
+            max_freq_pairs: List[Tuple[bytes, bytes]] = [most_common[0][0]]
+            # Get more candidates if needed (up to a reasonable limit to avoid scanning everything)
+            for pair, freq in pair_freq.most_common(min(1000, len(pair_freq))):
+                if freq == max_freq and pair not in max_freq_pairs:
+                    max_freq_pairs.append(pair)
+                elif freq < max_freq:
+                    # Since most_common returns in descending order, we can stop here
+                    break
             pair_to_merge: Tuple[bytes, bytes] = max(max_freq_pairs)
 
             # Create new token by concatenating the merged pair
             new_token_id: int = len(vocab)
             merges.append(pair_to_merge)
-            merged_token: bytes = pair_to_merge[0] + pair_to_merge[1]
-            vocab[new_token_id] = merged_token
+            vocab[new_token_id] = pair_to_merge[0] + pair_to_merge[1]
 
             # Log progress periodically (every 10% or every 100 steps, whichever is more frequent)
             progress_interval = max(1, min(100, total_steps // 10))
@@ -217,20 +234,46 @@ class BPETokenizer:
             # Simultaneously update pair_freq to avoid recalculating from scratch
             new_pre_token_counts: Dict[Tuple[bytes, ...], int] = {}
             a, b = pair_to_merge
+            # Cache merged_token since it's used multiple times
+            merged_token: bytes = pair_to_merge[0] + pair_to_merge[1]
 
-            for pre_token, count in pre_token_counts.items():
+            # Optimization: Only process pre-tokens that contain the pair being merged
+            # Use the reverse index to find relevant pre-tokens
+            # Create a copy to avoid "set changed size during iteration" error
+            pre_tokens_to_process = set(pair_to_pre_tokens.get(pair_to_merge, set()))
+            processed_pre_tokens = set()
+
+            # Process pre-tokens that contain the pair
+            for pre_token in pre_tokens_to_process:
+                count = pre_token_counts.get(pre_token, 0)
+                if count == 0:
+                    continue  # Skip if count is 0 (shouldn't happen, but be safe)
+                processed_pre_tokens.add(pre_token)
+
+                # Skip pre-tokens that are too short to contain the pair
+                if len(pre_token) < 2:
+                    new_pre_token_counts[pre_token] = (
+                        new_pre_token_counts.get(pre_token, 0) + count
+                    )
+                    continue
+
                 # Convert tuple to list for easier manipulation
                 token_list: List[bytes] = list(pre_token)
 
                 # Perform merge and update pair_freq in a single pass (greedy left-to-right)
                 merged_list: List[bytes] = []
                 i: int = 0
-                while i < len(token_list):
+                token_list_len = len(token_list)
+                changed = False  # Track if we made any merges
+
+                while i < token_list_len:
                     # Check if current and next byte form the merged pair
                     if (
-                        i < len(token_list) - 1
-                        and (token_list[i], token_list[i + 1]) == pair_to_merge
+                        i < token_list_len - 1
+                        and token_list[i] == a
+                        and token_list[i + 1] == b
                     ):
+                        changed = True
                         # Update pair_freq before merging:
                         # 1. Remove the pair (a, b) we're merging
                         pair_freq[pair_to_merge] -= count
@@ -239,13 +282,16 @@ class BPETokenizer:
 
                         # 2. If there's a token before 'a', update pairs involving it
                         # Use merged_list for previous token to handle adjacent merges correctly
-                        if len(merged_list) > 0:
+                        if merged_list:
                             prev_token = merged_list[-1]
                             # Remove (prev_token, a) pair (if it exists in pair_freq)
                             old_pair_before = (prev_token, a)
-                            if old_pair_before in pair_freq:
-                                pair_freq[old_pair_before] -= count
-                                if pair_freq[old_pair_before] <= 0:
+                            old_freq_before = pair_freq.get(old_pair_before, 0)
+                            if old_freq_before > 0:
+                                new_freq = old_freq_before - count
+                                if new_freq > 0:
+                                    pair_freq[old_pair_before] = new_freq
+                                else:
                                     del pair_freq[old_pair_before]
                             # Add (prev_token, merged_token) pair
                             new_pair_before = (prev_token, merged_token)
@@ -254,13 +300,17 @@ class BPETokenizer:
                             )
 
                         # 3. If there's a token after 'b', update pairs involving it
-                        if i + 2 < len(token_list):
+                        if i + 2 < token_list_len:
                             next_token = token_list[i + 2]
                             # Remove (b, next_token) pair
                             old_pair_after = (b, next_token)
-                            pair_freq[old_pair_after] -= count
-                            if pair_freq[old_pair_after] <= 0:
-                                del pair_freq[old_pair_after]
+                            old_freq_after = pair_freq.get(old_pair_after, 0)
+                            if old_freq_after > 0:
+                                new_freq = old_freq_after - count
+                                if new_freq > 0:
+                                    pair_freq[old_pair_after] = new_freq
+                                else:
+                                    del pair_freq[old_pair_after]
                             # Add (merged_token, next_token) pair
                             new_pair_after = (merged_token, next_token)
                             pair_freq[new_pair_after] = (
@@ -276,10 +326,40 @@ class BPETokenizer:
                         i += 1
 
                 # Convert back to tuple (for use as dictionary key) and update counts
-                merged_pre_token: Tuple[bytes, ...] = tuple(merged_list)
+                # Only create tuple if we made changes (optimization for unchanged pre-tokens)
+                if changed:
+                    merged_pre_token: Tuple[bytes, ...] = tuple(merged_list)
+                    # Update reverse index: remove old pre-token from all its pairs
+                    # and add merged pre-token to all its pairs
+                    if len(pre_token) >= 2:
+                        for old_pair in zip(pre_token, pre_token[1:]):
+                            if old_pair in pair_to_pre_tokens:
+                                pair_to_pre_tokens[old_pair].discard(pre_token)
+                                if not pair_to_pre_tokens[old_pair]:
+                                    del pair_to_pre_tokens[old_pair]
+                    # Add merged pre-token to reverse index for all its pairs
+                    if len(merged_pre_token) >= 2:
+                        for new_pair in zip(merged_pre_token, merged_pre_token[1:]):
+                            if new_pair not in pair_to_pre_tokens:
+                                pair_to_pre_tokens[new_pair] = set()
+                            pair_to_pre_tokens[new_pair].add(merged_pre_token)
+                else:
+                    merged_pre_token = pre_token  # Reuse original tuple
                 new_pre_token_counts[merged_pre_token] = (
                     new_pre_token_counts.get(merged_pre_token, 0) + count
                 )
+
+            # Copy pre-tokens that don't contain the pair (unchanged)
+            for pre_token, count in pre_token_counts.items():
+                if pre_token not in processed_pre_tokens:
+                    new_pre_token_counts[pre_token] = (
+                        new_pre_token_counts.get(pre_token, 0) + count
+                    )
+
+            # Clean up reverse index: remove the merged pair if it has no more pre-tokens
+            if pair_to_merge in pair_to_pre_tokens:
+                del pair_to_pre_tokens[pair_to_merge]
+
             pre_token_counts = new_pre_token_counts
 
         # Assign vocab and merges to instance variables
