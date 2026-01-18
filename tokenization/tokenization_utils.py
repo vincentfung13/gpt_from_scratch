@@ -1,10 +1,68 @@
 import os
 import regex as re
-from typing import BinaryIO, List, Union, Dict, Tuple
+from typing import BinaryIO, Iterable, List, Union, Dict, Tuple
 from collections import Counter
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
 from gpt_from_scratch.tokenization import cfg
+
+
+class FileIterator:
+    def __init__(
+        self,
+        file_path: str,
+        split_special_token: str = "<|endoftext|>",
+        read_chunk_size: int = 4096,
+    ):
+        self.file_path = file_path
+        self.split_special_token = split_special_token.encode("utf-8")
+        self.read_chunk_size = read_chunk_size
+
+    def __iter__(self) -> Iterable[str]:
+        with open(self.file_path, "rb") as f:
+            prefix = b""  # Keep prefix as bytes to handle chunk boundaries correctly
+            token_len = len(self.split_special_token)
+
+            while True:
+                mini_chunk = f.read(self.read_chunk_size)  # Read a mini chunk
+
+                # If EOF, yield remaining prefix if any
+                if mini_chunk == b"":
+                    if prefix:
+                        yield prefix.decode("utf-8", errors="replace")
+                    break
+
+                # Combine prefix and new chunk to search for token
+                combined = prefix + mini_chunk
+
+                # Find all occurrences of the token in the combined buffer
+                # Process each occurrence to yield multiple chunks if needed
+                search_start = 0
+                last_token_end = 0
+                while True:
+                    found_at = combined.find(self.split_special_token, search_start)
+                    if found_at == -1:
+                        # No more tokens found in this buffer
+                        break
+
+                    # Yield the chunk up to (and including) the token
+                    return_chunk = combined[last_token_end:found_at + token_len]
+                    yield return_chunk.decode("utf-8", errors="replace")
+
+                    # Continue searching after this token
+                    search_start = found_at + token_len
+                    last_token_end = search_start
+
+                # Update prefix: remaining bytes after last token, or suffix for spanning
+                if last_token_end > 0:
+                    # We found at least one token, keep bytes after the last one
+                    prefix = combined[last_token_end:]
+                else:
+                    # No tokens found, keep a suffix to handle token that might span across chunks
+                    if len(combined) >= token_len:
+                        prefix = combined[-(token_len - 1):]
+                    else:
+                        prefix = combined
 
 
 def find_most_freq_pair_to_merge(
