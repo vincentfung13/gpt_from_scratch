@@ -1,10 +1,37 @@
 import os
 import regex as re
-from typing import BinaryIO, List, Union, Dict
+from typing import BinaryIO, List, Union, Dict, Tuple
 from collections import Counter
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
 from gpt_from_scratch.tokenization import cfg
+
+
+def find_most_freq_pair_to_merge(
+    pair_freq: Dict[Tuple[bytes, bytes], int],
+) -> Tuple[Tuple[bytes, bytes], int]:
+    # If multiple pairs have the same max frequency, choose lexicographically largest
+    # Optimization: Use most_common() with a reasonable limit, then find lexicographically
+    # largest among pairs with max frequency in a single pass
+
+    most_common_iter = pair_freq.most_common(min(1000, len(pair_freq)))
+    if not most_common_iter:
+        return
+
+    # Get first pair to establish max_freq
+    first_pair, max_freq = most_common_iter[0]
+    pair_to_merge: Tuple[bytes, bytes] = first_pair
+
+    # Iterate through remaining pairs with same frequency, tracking lexicographically largest
+    for pair, freq in most_common_iter[1:]:
+        if freq < max_freq:
+            # Since most_common returns in descending order, we can stop here
+            break
+        # Update if this pair is lexicographically larger
+        if pair > pair_to_merge:
+            pair_to_merge = pair
+
+    return pair_to_merge, max_freq
 
 
 def encode_string(
