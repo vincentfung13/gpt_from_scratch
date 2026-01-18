@@ -1,8 +1,10 @@
 from collections.abc import Iterator
+import time
 import pickle
 import os
 import regex as re
 import logging
+from tqdm import tqdm
 from typing import Iterable, List, Dict, Tuple, Optional
 from collections import Counter, defaultdict
 
@@ -179,7 +181,9 @@ class BPETokenizer:
         )
 
         # Continue merging until we reach the target vocabulary size
-        for step in range(total_steps):
+        for step in tqdm(list(range(total_steps)), desc="Running merges..."):
+            start_ts = time.time()
+
             # Step 1: Find the pair with maximum frequency to merge
             # If multiple pairs have the same max frequency, choose lexicographically largest
             # Optimization: Use most_common() with a reasonable limit, then find lexicographically
@@ -195,6 +199,7 @@ class BPETokenizer:
             # Get first pair to establish max_freq
             first_pair, max_freq = most_common_iter[0]
             pair_to_merge: Tuple[bytes, bytes] = first_pair
+            found_pair_to_merge_ts = time.time()
 
             # Iterate through remaining pairs with same frequency, tracking lexicographically largest
             for pair, freq in most_common_iter[1:]:
@@ -210,22 +215,6 @@ class BPETokenizer:
             merges.append(pair_to_merge)
             vocab[new_token_id] = pair_to_merge[0] + pair_to_merge[1]
 
-            # Log progress periodically (every 10% or every 100 steps, whichever is more frequent)
-            progress_interval = max(1, min(100, total_steps // 10))
-            if (step + 1) % progress_interval == 0 or step == 0:
-                progress_pct = (
-                    ((step + 1) / total_steps) * 100 if total_steps > 0 else 0
-                )
-                try:
-                    pair_repr = f"{pair_to_merge[0]!r} + {pair_to_merge[1]!r}"
-                except Exception:
-                    pair_repr = f"bytes({len(pair_to_merge[0])}) + bytes({len(pair_to_merge[1])})"
-                logger.info(
-                    f"Step {step + 1}/{total_steps} ({progress_pct:.1f}%): "
-                    f"Merging pair {pair_repr} (freq={max_freq}) -> token_id={new_token_id}, "
-                    f"vocab_size={len(vocab)}"
-                )
-
             # Step 3: Perform the merge on all pre-tokens and update pair_freq incrementally
             # Update pre_token_counts by replacing all occurrences of the pair with the merged token
             # Simultaneously update pair_freq to avoid recalculating from scratch
@@ -234,11 +223,12 @@ class BPETokenizer:
             # Cache merged_token since it's used multiple times
             merged_token: bytes = pair_to_merge[0] + pair_to_merge[1]
 
-            # Optimization: Only process pre-tokens that contain the pair being merged
-            # Use the reverse index to find relevant pre-tokens
-            # Create a copy to avoid "set changed size during iteration" error
-            pre_tokens_to_process = set(pair_to_pre_tokens.get(pair_to_merge, set()))
+            # Optimization: Only process pre-tokens that contain the pair being merged.
+            # Snapshot the set: we mutate pair_to_pre_tokens[old_pair] including for
+            # old_pair==pair_to_merge (discard pre_token), which would change the set during iter.
+            pre_tokens_to_process = list(pair_to_pre_tokens.get(pair_to_merge, set()))
             processed_pre_tokens = set()
+            start_merge_ts = time.time()
 
             # Process pre-tokens that contain the pair
             for pre_token in pre_tokens_to_process:
@@ -262,6 +252,7 @@ class BPETokenizer:
                 i: int = 0
                 token_list_len = len(token_list)
                 changed = False  # Track if we made any merges
+                num_occurrences = 0  # Batch pair_freq[pair_to_merge] update
 
                 while i < token_list_len:
                     # Check if current and next byte form the merged pair
@@ -271,11 +262,9 @@ class BPETokenizer:
                         and token_list[i + 1] == b
                     ):
                         changed = True
+                        num_occurrences += 1
                         # Update pair_freq before merging:
-                        # 1. Remove the pair (a, b) we're merging
-                        pair_freq[pair_to_merge] -= count
-                        if pair_freq[pair_to_merge] <= 0:
-                            del pair_freq[pair_to_merge]
+                        # 1. (pair_to_merge update is batched after the loop)
 
                         # 2. If there's a token before 'a', update pairs involving it
                         # Use merged_list for previous token to handle adjacent merges correctly
@@ -322,6 +311,12 @@ class BPETokenizer:
                         merged_list.append(token_list[i])
                         i += 1
 
+                # Batched update: remove pair_to_merge count (was done per-occurrence, now once)
+                if num_occurrences > 0:
+                    pair_freq[pair_to_merge] -= count * num_occurrences
+                    if pair_freq[pair_to_merge] <= 0:
+                        del pair_freq[pair_to_merge]
+
                 # Convert back to tuple (for use as dictionary key) and update counts
                 # Only create tuple if we made changes (optimization for unchanged pre-tokens)
                 if changed:
@@ -345,23 +340,39 @@ class BPETokenizer:
                 new_pre_token_counts[merged_pre_token] = (
                     new_pre_token_counts.get(merged_pre_token, 0) + count
                 )
+            pre_token_merge_ts = time.time()
 
-            # Copy pre-tokens that don't contain the pair (unchanged)
-            for pre_token, count in pre_token_counts.items():
-                if pre_token not in processed_pre_tokens:
-                    new_pre_token_counts[pre_token] = (
-                        new_pre_token_counts.get(pre_token, 0) + count
-                    )
+            # In-place update: only remove processed and add merged. Avoids iterating over
+            # all unique pre-tokens (O(|pre_token_counts|)) each merge—critical for 100M+ scale.
+            for p in processed_pre_tokens:
+                pre_token_counts.pop(p, None)
+            for k, v in new_pre_token_counts.items():
+                pre_token_counts[k] = pre_token_counts.get(k, 0) + v
 
             # Clean up reverse index: remove the merged pair if it has no more pre-tokens
             if pair_to_merge in pair_to_pre_tokens:
                 del pair_to_pre_tokens[pair_to_merge]
+            clean_up_ts = time.time()
 
-            pre_token_counts = new_pre_token_counts
+            if step > 0 and step % 10 == 0:
+                logger.info(
+                    "Merge step %d: merged pair %s + %s (freq=%d). Profile: find_pair=%.4fs preparation=%.4fs merge_pretokens=%.4fs cleanup=%.4fs",
+                    step + 1,
+                    repr(pair_to_merge[0]),
+                    repr(pair_to_merge[1]),
+                    max_freq,
+                    found_pair_to_merge_ts - start_ts,
+                    start_merge_ts - found_pair_to_merge_ts,
+                    pre_token_merge_ts - start_merge_ts,
+                    clean_up_ts - pre_token_merge_ts,
+                )
 
         # Assign vocab and merges to instance variables
         self.vocab = vocab
         self.merges = merges
+        self.get_token_ind: Dict[bytes, int] = {
+            token: token_ind for token_ind, token in self.vocab.items()
+        }
         self.special_tokens = special_tokens
 
         # Save the trained tokenizer to disk
@@ -483,9 +494,11 @@ class BPETokenizer:
 
 if __name__ == "__main__":
     # Example usage: train a BPE tokenizer on a text corpus
-    bpe = BPETokenizer.from_file(
-        vocab_filepath="tokenizer_checkpoints/bpe_vocab.pkl",
-        merges_filepath="tokenizer_checkpoints/bpe_merges.pkl",
+    bpe = BPETokenizer()
+    bpe.train(
+        input_path="/mnt/bn/suhe-v6/zijian/cs336/data/owt_train.txt",
+        vocab_size=32000,
+        num_chunks=32,
     )
     print(
         bpe.decode(

@@ -1,154 +1,115 @@
 # Tokenization Module
 
-This module implements a **Byte Pair Encoding (BPE)** tokenizer, which is a subword tokenization algorithm commonly used in modern language models like GPT-2, GPT-3, and GPT-4.
+This module implements a **Byte Pair Encoding (BPE)** tokenizer. The implementation emphasizes **efficient BPE training** through several optimizations over a naive brute-force algorithm, enabling training on large corpora (100M+ scale) in reasonable time.
 
-## Overview
+---
 
-The BPE tokenizer learns a vocabulary by iteratively merging the most frequent pairs of bytes/tokens in a training corpus. The resulting vocabulary consists of:
-- **Special tokens** (e.g., `<|endoftext|>`) - assigned IDs starting from 256
-- **256 base byte values** - the fundamental building blocks (IDs 0-255)
-- **Learned merged tokens** - byte pairs that were merged during training (IDs 256+)
+## Brute-Force BPE vs. Optimized Implementation
 
-## Key Components
+A naive BPE training algorithm does the following at **each merge step**:
 
-### `BPETokenizer` Class
+1. **Recount all pairs from scratch** — iterate over every pre-token and count all adjacent pairs.
+2. **Scan all pre-tokens to apply the merge** — visit every unique pre-token to replace occurrences of the chosen pair, even when it does not contain that pair.
+3. **Rebuild the pre-token dictionary** — construct a new `pre_token_counts` from the full corpus/state.
 
-The main tokenizer class that handles training, encoding, and decoding.
+This yields per-step complexity on the order of **O(P × L)** for pair counting and **O(P × L)** for merging, where P = number of unique pre-tokens and L = average pre-token length. Over V merges (vocab growth), total cost is **O(V × P × L)**, which becomes prohibitive for large P (e.g., millions of unique pre-tokens).
 
-**Key Methods:**
-- `train()`: Trains the tokenizer on a text corpus
-- `encode()`: Converts text strings into token IDs
-- `decode()`: Converts token IDs back into text strings
-- `save()`: Saves the trained tokenizer to disk
-- `from_file()`: Loads a trained tokenizer from disk
+The optimizations below reduce work per merge and keep total training cost much lower in practice.
 
-### `tokenization_utils.py`
+---
 
-Utility functions that support the tokenization process:
+## Optimizations for Efficient BPE Training
 
-- `run_pre_tokenization()`: Pre-tokenizes input text into chunks for parallel processing
-- `encode_string()`: Applies BPE merges to encode a string into token IDs
-- `_pre_tokenize_text()`: Core pre-tokenization logic using regex patterns
-- `_find_chunk_boundaries()`: Finds safe boundaries for parallel file processing
+### 1. Pair-to-Pre-Token Reverse Index (Inverted Index)
 
-### `cfg.py`
+**Brute force:** At each merge, scan all pre-tokens to find which ones contain the chosen pair. Cost: **O(P)** per step.
 
-Configuration file containing the pre-tokenization regex pattern used to split text into words, numbers, contractions, punctuation, and whitespace.
+**Optimization:** Maintain a reverse index `pair_to_pre_tokens: Dict[Tuple[bytes, bytes], Set[Tuple[bytes, ...]]]` that maps each pair to the set of pre-tokens that contain it.
 
-## Key Implementation Details
+- **Build once** during initialization when computing initial `pair_freq` and `pair_to_pre_tokens`.
+- **At each merge:** Only process pre-tokens in `pair_to_pre_tokens[pair_to_merge]`.
+- **After merging:** Update the index: remove the old pre-token from the sets of its pairs, and add the new merged pre-token to the sets of its new pairs.
 
-### 1. Byte-Level BPE
+**Effect:** Work per merge is proportional to the number of pre-tokens that **actually contain** the merged pair (often much smaller than P), instead of all P pre-tokens. This is the main lever for scaling to large P.
 
-This implementation uses **byte-level BPE**, meaning:
-- All text is first encoded to UTF-8 bytes
-- The base vocabulary consists of all 256 possible byte values
-- Merges operate on byte pairs, ensuring the tokenizer can handle any Unicode text without an out-of-vocabulary (OOV) problem
+---
 
-### 2. Pre-Tokenization
+### 2. Incremental Pair Frequency Updates
 
-Before applying BPE merges, text is pre-tokenized using a regex pattern that matches:
-- Words (including contractions like `'ll`, `'ve`, `'re`)
-- Numbers
-- Punctuation
-- Whitespace
+**Brute force:** After each merge, recompute `pair_freq` by iterating over all pre-tokens and counting all adjacent pairs. Cost: **O(P × L)** per step.
 
-This pre-tokenization step ensures that merges only occur within words, not across word boundaries, which helps preserve linguistic structure.
+**Optimization:** Update `pair_freq` incrementally while applying the merge in a single left-to-right pass over each affected pre-token:
 
-### 3. Training Process
+- **Remove** the count of the merged pair `(a, b)` for each occurrence (batched per pre-token).
+- For each merge of `(a, b)` into `merged_token`:
+  - **Remove** `(prev_token, a)` and **add** `(prev_token, merged_token)` with the appropriate count.
+  - **Remove** `(b, next_token)` and **add** `(merged_token, next_token)` with the appropriate count.
 
-The training algorithm follows these steps:
+**Effect:** Pair counts stay correct without a full recount. Cost per merge is **O**(number of affected pre-tokens × length), not O(P × L).
 
-1. **Initialize vocabulary**: Start with 256 base bytes + special tokens
-2. **Pre-tokenize corpus**: Split text into chunks and count occurrences of each pre-token
-3. **Iterative merging**:
-   - Count frequency of all adjacent byte pairs in pre-tokens
-   - Find the most frequent pair (with lexicographic tie-breaking)
-   - Merge the pair into a new token
-   - Update all pre-tokens by replacing occurrences of the pair with the merged token
-   - Repeat until target vocabulary size is reached
+---
 
-4. **Save results**: Store vocabulary, merges, and special tokens to disk
+### 3. In-Place Pre-Token Count Updates
 
-### 4. Encoding Process
+**Brute force:** Each merge builds a brand-new `pre_token_counts` (or equivalent) by iterating over all pre-tokens and applying the merge, then replacing the old structure. This implies **O(P)** iterations and extra memory for the new structure.
 
-When encoding text:
+**Optimization:**  
+- Process only pre-tokens from `pair_to_pre_tokens[pair_to_merge]`.  
+- For each such pre-token, remove it from `pre_token_counts` and add the merged (and possibly new) pre-tokens into `pre_token_counts` with the right counts.  
+- No full pass over all P pre-tokens; only add/remove entries for pre-tokens that actually changed.
 
-1. **Split by special tokens**: Text is first split by special tokens (sorted by length, longest first) to handle overlapping tokens correctly
-2. **Pre-tokenize**: Each segment is pre-tokenized using the regex pattern
-3. **Apply merges**: For each pre-token:
-   - Start with individual bytes
-   - Apply all learned merges in order (greedy left-to-right)
-   - Convert merged tokens to token IDs using the vocabulary
+**Effect:** Fewer iterations and lower memory churn, which is important at 100M+ pre-token scales.
 
-### 5. Decoding Process
+---
 
-Decoding is straightforward:
-- Look up each token ID in the vocabulary to get its byte representation
-- Concatenate all bytes
-- Decode as UTF-8 (with error handling for invalid sequences)
+### 4. Bounded Scan for Finding the Best Pair
 
-### 6. Special Token Handling
+**Brute force:** To pick the pair with maximum frequency (and lexicographic tie-breaking), sort or scan the entire `pair_freq` structure. Cost: **O(N log N)** or **O(N)** per step, with N = number of distinct pairs.
 
-Special tokens are handled carefully:
-- They are added to the vocabulary during initialization
-- During encoding, text is split by special tokens first to preserve them
-- Special tokens are matched longest-first to handle overlapping cases (e.g., `"<|endoftext|><|endoftext|>"`)
+**Optimization:** Use `pair_freq.most_common(min(1000, len(pair_freq)))` to obtain a limited number of top-frequency pairs, then among those with the **same** maximum frequency, choose the lexicographically largest in a single pass.  
+This avoids a full sort of all pairs when the max is likely within a small top set.
 
-### 7. Parallel Processing
+**Effect:** Per-step selection cost is effectively **O(1)** when using a structure like `Counter` and only examining a bounded number of candidates, instead of O(N) or O(N log N) over the full pair set.
 
-For efficient training on large corpora:
-- The input file is split into chunks at safe boundaries (using special tokens)
-- Each chunk is processed in parallel using `ProcessPoolExecutor`
-- Pre-token counts are aggregated across all chunks
-- This allows training on large files without loading everything into memory
+---
 
-### 8. File Chunking Strategy
+## Complexity Summary
 
-The chunking algorithm:
-- Divides the file into roughly equal-sized chunks
-- Refines boundaries by searching for special tokens in 4KB windows
-- Ensures chunks don't split text in the middle of a segment
-- May produce fewer chunks than requested if boundaries overlap
+| Operation                     | Brute Force        | Optimized                            |
+|-----------------------------|--------------------|--------------------------------------|
+| Find best pair              | O(N) or O(N log N) | O(1) with bounded `most_common`      |
+| Apply merge (pre-tokens)    | O(P × L)           | O(A × L), A = pre-tokens with pair   |
+| Update pair frequencies     | O(P × L)           | O(A × L), incremental                |
+| Update pre-token structure  | O(P)               | O(A), in-place adds/removals         |
 
-## Usage Example
+Here, **A** is the number of pre-tokens that contain the merged pair; typically A ≪ P for many merges, so the optimized implementation scales much better with P and V.
 
+---
+
+## Other Components
+
+- **`BPETokenizer`** (`bpe.py`): Training, encoding, decoding, save/load.
+- **`tokenization_utils.py`**: Pre-tokenization, chunking, and `encode_string` for applying merges.
+- **`frequency_heap.py`**: Heap structure for max-frequency pair selection with lazy deletion (optional alternative to `Counter.most_common`).
+- **`cfg.py`**: Pre-tokenization regex and related config.
+
+For deeper bottleneck analysis and possible further improvements, see `BOTTLENECK_ANALYSIS.md`.
+
+---
+
+## Quick Reference
+
+**Usage:**
 ```python
 from gpt_from_scratch.tokenization.bpe import BPETokenizer
 
-# Train a new tokenizer
+# Train
 tokenizer = BPETokenizer()
-tokenizer.train(
-    input_path="data/train.txt",
-    vocab_size=50000,
-    special_tokens=["<|endoftext|>"]
-)
+tokenizer.train(input_path="data/train.txt", vocab_size=50000, special_tokens=["<|endoftext|>"])
 
-# Load a trained tokenizer
-tokenizer = BPETokenizer.from_file(
-    vocab_filepath="tokenizer_checkpoints/bpe_vocab.pkl",
-    merges_filepath="tokenizer_checkpoints/bpe_merges.pkl",
-    special_tokens=["<|endoftext|>"]
-)
-
-# Encode text
-token_ids = tokenizer.encode("Hello, world! <|endoftext|>")
-
-# Decode tokens
-text = tokenizer.decode(token_ids)
+# Load and use
+tokenizer = BPETokenizer.from_file("tokenizer_checkpoints/bpe_vocab.pkl", "tokenizer_checkpoints/bpe_merges.pkl")
+token_ids = tokenizer.encode("Hello, world!")
 ```
 
-## File Format
-
-The tokenizer saves three files:
-- `bpe_vocab.pkl`: Pickle file containing a dictionary mapping token IDs to byte sequences
-- `bpe_merges.pkl`: Pickle file containing a list of byte pairs that were merged (in order)
-- `special_tokens.txt`: Plain text file with one special token per line
-
-## Design Decisions
-
-1. **Byte-level encoding**: Ensures no OOV tokens, but may produce longer sequences than character-level or word-level tokenization
-2. **Greedy left-to-right merging**: During encoding, merges are applied greedily from left to right, matching the training process
-3. **Pre-tokenization**: Using regex patterns ensures merges respect word boundaries, improving token quality
-4. **Parallel processing**: Chunk-based parallelization allows training on large files efficiently
-5. **Pickle format**: Binary format for efficient storage and loading of byte sequences
-
+**Files:** `bpe_vocab.pkl`, `bpe_merges.pkl`, `special_tokens.txt` — see `BPETokenizer.save()` and `from_file()` in `bpe.py`.
