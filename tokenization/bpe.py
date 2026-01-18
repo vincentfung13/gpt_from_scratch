@@ -5,7 +5,7 @@ import os
 import regex as re
 import logging
 from tqdm import tqdm
-from typing import Iterable, List, Dict, Tuple, Optional
+from typing import Iterable, List, Dict, Tuple, Optional, Union
 from collections import Counter, defaultdict
 
 from gpt_from_scratch.tokenization.tokenization_utils import run_pre_tokenization
@@ -103,6 +103,7 @@ class BPETokenizer:
         self,
         input_path: str,
         vocab_size: int,
+        save_dir: Union[None, str],
         special_tokens: List[str] = ["<|endoftext|>"],
         num_chunks: int = 8,
         file_split_token: str = "<|endoftext|>",
@@ -119,6 +120,7 @@ class BPETokenizer:
         Args:
             input_path: Path to the training text file.
             vocab_size: Target vocabulary size (includes special tokens and base bytes).
+            save_dir: Directory to save the pre-trained tokenizer, set to None to disable saving (e.g for testing).
             special_tokens: List of special token strings to include in vocabulary.
             num_chunks: Number of chunks to split the input file for parallel processing.
             file_split_token: Special token used to split the file into chunks safely.
@@ -376,7 +378,8 @@ class BPETokenizer:
         self.special_tokens = special_tokens
 
         # Save the trained tokenizer to disk
-        self.save()
+        if save_dir is not None:
+            self.save(save_dir=save_dir)
 
     def encode(self, text: str) -> List[int]:
         """
@@ -451,7 +454,7 @@ class BPETokenizer:
             code_points += list(self.vocab[_id])
         return bytes(code_points).decode("utf-8", errors="replace")
 
-    def save(self, root_dir: str = "tokenizer_checkpoints") -> None:
+    def save(self, save_dir: str = "tokenizer_checkpoints") -> None:
         """
         Save the trained tokenizer to disk.
 
@@ -461,18 +464,18 @@ class BPETokenizer:
         - special_tokens.txt: List of special tokens (one per line)
 
         Args:
-            root_dir: Directory where tokenizer files will be saved.
+            save_dir: Directory where tokenizer files will be saved.
                      Will be created if it doesn't exist.
         """
         # Create output directory if it doesn't exist
-        if not os.path.isdir(root_dir):
-            os.makedirs(root_dir)
-            logger.debug(f"Created directory: {root_dir}")
+        if not os.path.isdir(save_dir):
+            os.makedirs(save_dir)
+            logger.debug(f"Created directory: {save_dir}")
 
         # Define output file paths
-        vocab_out_path: str = os.path.join(root_dir, "bpe_vocab.pkl")
-        merges_out_path: str = os.path.join(root_dir, "bpe_merges.pkl")
-        special_tokens_path: str = os.path.join(root_dir, "special_tokens.txt")
+        vocab_out_path: str = os.path.join(save_dir, "bpe_vocab.pkl")
+        merges_out_path: str = os.path.join(save_dir, "bpe_merges.pkl")
+        special_tokens_path: str = os.path.join(save_dir, "special_tokens.txt")
 
         # Save vocabulary dictionary as pickle file
         with open(vocab_out_path, "wb") as vocab_f:
@@ -488,7 +491,7 @@ class BPETokenizer:
                 st_f.write(special_token + "\n")
 
         logger.debug(
-            f"Saved tokenizer files to {root_dir}: vocab ({len(self.vocab)} tokens), merges ({len(self.merges)} merges), special_tokens ({len(self.special_tokens)} tokens)"
+            f"Saved tokenizer files to {save_dir}: vocab ({len(self.vocab)} tokens), merges ({len(self.merges)} merges), special_tokens ({len(self.special_tokens)} tokens)"
         )
 
 

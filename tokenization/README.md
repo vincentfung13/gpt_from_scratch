@@ -105,10 +105,10 @@ from gpt_from_scratch.tokenization.bpe import BPETokenizer
 
 # Train
 tokenizer = BPETokenizer()
-tokenizer.train(input_path="data/train.txt", vocab_size=50000, special_tokens=["<|endoftext|>"])
+tokenizer.train(input_path="data/train.txt", vocab_size=50000, save_dir=OUTPUT_DIR, special_tokens=["<|endoftext|>"])
 
 # Load and use
-tokenizer = BPETokenizer.from_file("tokenizer_checkpoints/bpe_vocab.pkl", "tokenizer_checkpoints/bpe_merges.pkl")
+tokenizer = BPETokenizer.from_file("OUTPUT_DIR/bpe_vocab.pkl", "OUTPUT_DIR/bpe_merges.pkl")
 token_ids = tokenizer.encode("Hello, world!")
 ```
 
