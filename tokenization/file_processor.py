@@ -7,6 +7,7 @@ from multiprocessing import Pool
 from tqdm import tqdm
 
 from gpt_from_scratch.tokenization.tokenization_utils import pre_tokenize_text
+from gpt_from_scratch import LOGGER
 
 # Global tokenizer used by worker processes
 _GLOBAL_TOKENIZER = None
@@ -30,11 +31,16 @@ def _tokenize_pre_token_worker(pre_token: Tuple[bytes, ...]):
 class FileProcessor:
     def __init__(self, file_path: str):
         self.file_path = file_path
+        self.file_size_in_mb = os.path.getsize(file_path) / (1024 * 1024)
+        self.num_process_chunks = max(int(self.file_size_in_mb // 100), 8)
         self.pre_token_counts = None
+        LOGGER.info(
+            f"[FILE_PROCESSOR] File {self.file_path} has size {self.file_size_in_mb:.2f} MB, "
+            f"using {self.num_process_chunks} chunks for pre-tokenization."
+        )
 
     def get_pre_token_counts(
         self,
-        num_chunks: int = 12,
         chunk_split_special_token: str = "<|endoftext|>",
         special_tokens: List[str] = ["<|endoftext|>"],
     ) -> Counter[Tuple[bytes, ...], int]:
@@ -43,7 +49,7 @@ class FileProcessor:
 
         self.pre_tokens_count = {}
         for pre_token in self.pre_tokenize(
-            num_chunks=num_chunks,
+            num_chunks=self.num_process_chunks,
             chunk_split_special_token=chunk_split_special_token,
             special_tokens=special_tokens,
         ):
@@ -54,7 +60,8 @@ class FileProcessor:
 
     def pre_tokenize(
         self,
-        num_chunks: int = 12,
+        num_chunks,
+        num_workers=12,
         chunk_split_special_token: str = "<|endoftext|>",
         special_tokens: List[str] = ["<|endoftext|>"],
     ) -> Iterator[Tuple[bytes, ...]]:
@@ -77,7 +84,7 @@ class FileProcessor:
 
         # Process chunks in parallel
         chunk_pairs = list(zip(boundaries[:-1], boundaries[1:]))
-        with ProcessPoolExecutor() as executor:
+        with ProcessPoolExecutor(max_workers=num_workers) as executor:
 
             # Submit all chunk processing tasks
             future_to_chunk = [
@@ -112,11 +119,11 @@ class FileProcessor:
     ) -> Iterator[Tuple[bytes, ...]]:
         # Dedup by pre-tokens
         pre_tokens_count = self.get_pre_token_counts(
-            num_chunks=num_chunks,
             chunk_split_special_token=chunk_split_special_token,
             special_tokens=special_tokens,
         )
         pre_tokens = list(pre_tokens_count.keys())
+        LOGGER.info(f"[FILE_PROCESSOR] Found {len(pre_tokens)} unique pre-tokens.")
 
         # Tokenize pre_tokens in parallel
         with Pool(
@@ -136,6 +143,7 @@ class FileProcessor:
                 pre_token_to_tokens[pre_token] = encoded_tokens
 
         # Pack results into list
+        LOGGER.info("[FILE_PROCESSOR] Converting file to tokens...")
         all_tokens = []
         for pre_token in self.pre_tokenize(
             num_chunks=num_chunks,
@@ -152,6 +160,9 @@ class FileProcessor:
 
         # Flush to disk
         arr.flush()
+        LOGGER.info(
+            f"[FILE_PROCESSOR] Saved {len(all_tokens)} tokens to {output_path}."
+        )
 
 
 def _find_chunk_boundaries(
@@ -222,11 +233,9 @@ def _file_pre_tokenization_worker(
 
 
 if __name__ == "__main__":
-    tokenizer_path = "/mnt/bn/suhe-v6/zijian/cs336/owt_bpe_tokenizer"
-    input_path = "/mnt/bn/suhe-v6/zijian/cs336/data/owt_train.txt"
-    output_path = os.path.join(
-        "/mnt/bn/suhe-v6/zijian/cs336/data", "owt_train.tokens.uint16.npy"
-    )
+    tokenizer_path = "owt_bpe_tokenizer"
+    input_path = "data/owt_train.txt"
+    output_path = "data/owt_train.tokens.uint16.npy"
     special_tokens = ["<|endoftext|>"]
     special_tokens = sorted(special_tokens, key=len, reverse=True)
 

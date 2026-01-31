@@ -142,7 +142,6 @@ class BPETokenizer:
         LOGGER.info(f"Running pre-tokenization with {num_chunks} chunks...")
         fp = FileProcessor(file_path=input_path)
         pre_token_counts: Counter[Tuple[bytes, ...]] = fp.get_pre_token_counts(
-            num_chunks=num_chunks,
             chunk_split_special_token=file_split_token,
             special_tokens=special_tokens,
         )
