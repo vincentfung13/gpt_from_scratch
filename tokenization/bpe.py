@@ -3,29 +3,15 @@ import time
 import pickle
 import os
 import regex as re
-import logging
 from tqdm import tqdm
 from typing import Iterable, List, Dict, Tuple, Optional, Union
 from collections import Counter, defaultdict
 
 from gpt_from_scratch.tokenization.tokenization_utils import (
-    run_pre_tokenization,
     find_most_freq_pair_to_merge,
     encode_string,
 )
-
-logger = logging.getLogger("gpt_from_scratch.tokenization")
-
-# Configure logging format with human-readable timestamps if not already configured
-if not logger.handlers:
-    handler = logging.StreamHandler()
-    formatter = logging.Formatter(
-        "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
-    logger.setLevel(logging.INFO)
+from gpt_from_scratch import LOGGER
 
 
 class BPETokenizer:
@@ -128,8 +114,8 @@ class BPETokenizer:
             num_chunks: Number of chunks to split the input file for parallel processing.
             file_split_token: Special token used to split the file into chunks safely.
         """
-        logger.info(f"Starting BPE training on {input_path}")
-        logger.info(
+        LOGGER.info(f"Starting BPE training on {input_path}")
+        LOGGER.info(
             f"Target vocabulary size: {vocab_size}, Special tokens: {special_tokens}"
         )
 
@@ -145,20 +131,22 @@ class BPETokenizer:
             vocab[token_id] = special_token.encode("utf-8")
 
         initial_vocab_size = len(vocab)
-        logger.info(
+        LOGGER.info(
             f"Initialized vocabulary with {initial_vocab_size} tokens (256 base bytes + {len(special_tokens)} special tokens)"
         )
 
         # Run pre-tokenization to split text into chunks and count occurrences
         # Returns a Counter mapping pre-token tuples (of bytes) to their counts
-        logger.info(f"Running pre-tokenization with {num_chunks} chunks...")
-        pre_token_counts: Counter[Tuple[bytes, ...]] = run_pre_tokenization(
-            raw_input=input_path,
+        from gpt_from_scratch.tokenization.file_processor import FileProcessor
+
+        LOGGER.info(f"Running pre-tokenization with {num_chunks} chunks...")
+        fp = FileProcessor(file_path=input_path)
+        pre_token_counts: Counter[Tuple[bytes, ...]] = fp.get_pre_token_counts(
             num_chunks=num_chunks,
             chunk_split_special_token=file_split_token,
             special_tokens=special_tokens,
         )
-        logger.info(
+        LOGGER.info(
             f"Pre-tokenization complete. Found {len(pre_token_counts)} unique pre-tokens"
         )
 
@@ -181,7 +169,7 @@ class BPETokenizer:
         merges: List[Tuple[bytes, bytes]] = []
 
         total_steps = vocab_size - len(vocab)
-        logger.info(
+        LOGGER.info(
             f"Starting BPE merge process. Will perform {total_steps} merge steps to reach vocab size {vocab_size}"
         )
 
@@ -321,7 +309,7 @@ class BPETokenizer:
             clean_up_ts = time.time()
 
             if step > 0 and step % 10 == 0:
-                logger.info(
+                LOGGER.info(
                     "Merge step %d: merged pair %s + %s (freq=%d). Profile: find_pair=%.4fs merge_pretokens=%.4fs cleanup=%.4fs",
                     step + 1,
                     repr(pair_to_merge[0]),
@@ -433,7 +421,7 @@ class BPETokenizer:
         # Create output directory if it doesn't exist
         if not os.path.isdir(save_dir):
             os.makedirs(save_dir)
-            logger.debug(f"Created directory: {save_dir}")
+            LOGGER.debug(f"Created directory: {save_dir}")
 
         # Define output file paths
         vocab_out_path: str = os.path.join(save_dir, "bpe_vocab.pkl")
@@ -453,7 +441,7 @@ class BPETokenizer:
             for special_token in self.special_tokens:
                 st_f.write(special_token + "\n")
 
-        logger.debug(
+        LOGGER.debug(
             f"Saved tokenizer files to {save_dir}: vocab ({len(self.vocab)} tokens), merges ({len(self.merges)} merges), special_tokens ({len(self.special_tokens)} tokens)"
         )
 
