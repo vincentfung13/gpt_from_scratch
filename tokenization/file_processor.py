@@ -157,11 +157,6 @@ class FileProcessor:
             "Converting the file into tokens..."
         )
 
-        # Save pre_token_to_tokens with pickle
-        with open(f"{output_path}.pre_token_to_tokens.pkl", "wb") as f:
-            pickle.dump(pre_token_to_tokens, f)
-
-        LOGGER.info("[FILE_PROCESSOR] Converting file to tokens...")
         arr = np.memmap(
             output_path, dtype=np.uint16, mode="w+", shape=(total_number_of_tokens,)
         )
