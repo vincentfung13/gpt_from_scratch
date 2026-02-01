@@ -447,8 +447,8 @@ if __name__ == "__main__":
     # Example usage: train a BPE tokenizer on a text corpus
     bpe = BPETokenizer()
     bpe.train(
-        input_path="/mnt/bn/suhe-v6/zijian/cs336/data/owt_train.txt",
-        save_dir="/mnt/bn/suhe-v6/zijian/cs336/owt_bpe",
+        input_path="cs336/data/owt_train.txt",
+        save_dir="cs336/owt_bpe",
         vocab_size=32000,
     )
     print(

@@ -1,8 +1,9 @@
 import os
+import pickle
 import numpy as np
 from collections import Counter
 from typing import Iterator, Tuple, List, BinaryIO
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor
 from multiprocessing import Pool
 from tqdm import tqdm
 
@@ -34,6 +35,7 @@ class FileProcessor:
         self.file_size_in_mb = os.path.getsize(file_path) / (1024 * 1024)
         self.num_process_chunks = max(int(self.file_size_in_mb // 100), 8)
         self.pre_token_counts = None
+        self.total_number_of_tokens = 0
         LOGGER.info(
             f"[FILE_PROCESSOR] File {self.file_path} has size {self.file_size_in_mb:.2f} MB, "
             f"using {self.num_process_chunks} chunks for pre-tokenization."
@@ -82,28 +84,37 @@ class FileProcessor:
         # Process chunks in parallel
         chunk_pairs = list(zip(boundaries[:-1], boundaries[1:]))
         with ProcessPoolExecutor(max_workers=num_workers) as executor:
-
-            # Submit all chunk processing tasks
-            future_to_chunk = [
-                executor.submit(
-                    _file_pre_tokenization_worker,
-                    self.file_path,
-                    start,
-                    end,
-                    special_tokens,
-                )
-                for start, end in chunk_pairs
-            ]
-
-            # Collect results as they complete
             with tqdm(
-                total=len(future_to_chunk), desc="Pre-tokenizing chunks", unit="chunk"
+                total=len(chunk_pairs), desc="Pre-tokenizing chunks", unit="chunk"
             ) as pbar:
-                for future in as_completed(future_to_chunk):
-                    _pre_tokens = future.result()
+                window_size = min(num_workers, len(chunk_pairs))
+                futures = {}
+                for i in range(window_size):
+                    start, end = chunk_pairs[i]
+                    futures[i] = executor.submit(
+                        _file_pre_tokenization_worker,
+                        self.file_path,
+                        start,
+                        end,
+                        special_tokens,
+                    )
+                next_to_submit = window_size
+                for i in range(len(chunk_pairs)):
+                    _pre_tokens = futures[i].result()
                     for pre_token in _pre_tokens:
                         yield pre_token
                     pbar.update(1)
+                    if next_to_submit < len(chunk_pairs):
+                        start, end = chunk_pairs[next_to_submit]
+                        futures[next_to_submit] = executor.submit(
+                            _file_pre_tokenization_worker,
+                            self.file_path,
+                            start,
+                            end,
+                            special_tokens,
+                        )
+                        next_to_submit += 1
+                    del futures[i]
 
     def tokenize_file(
         self,
@@ -122,6 +133,7 @@ class FileProcessor:
         LOGGER.info(f"[FILE_PROCESSOR] Found {len(pre_tokens)} unique pre-tokens.")
 
         # Tokenize pre_tokens in parallel
+        total_number_of_tokens = 0
         with Pool(
             processes=num_workers,
             initializer=_init_tokenizer,
@@ -137,54 +149,67 @@ class FileProcessor:
             )
             for pre_token, encoded_tokens in results:
                 pre_token_to_tokens[pre_token] = encoded_tokens
+                total_number_of_tokens += pre_tokens_count[pre_token] * len(
+                    encoded_tokens
+                )
+        LOGGER.info(
+            f"[FILE_PROCESSOR] Tokenization finished, found {total_number_of_tokens} tokens. "
+            "Converting the file into tokens..."
+        )
+
+        # Save pre_token_to_tokens with pickle
+        with open(f"{output_path}.pre_token_to_tokens.pkl", "wb") as f:
+            pickle.dump(pre_token_to_tokens, f)
 
         LOGGER.info("[FILE_PROCESSOR] Converting file to tokens...")
-        chunk_files = []
-        buffer_tokens = []
-        flush_every_tokens = 5000000
-        part_idx = 0
-        for pre_token in self.pre_tokenize(
-            chunk_split_special_token=chunk_split_special_token,
-            special_tokens=special_tokens,
-        ):
-            buffer_tokens.extend(pre_token_to_tokens[pre_token])
-            if len(buffer_tokens) >= flush_every_tokens:
-                part_path = f"{output_path}.part{part_idx}.bin"
-                np.asarray(buffer_tokens, dtype=np.uint16).tofile(part_path)
-                chunk_files.append(part_path)
-                buffer_tokens.clear()
-                part_idx += 1
-                LOGGER.info(
-                    f"[FILE_PROCESSOR] Saved {len(buffer_tokens)} tokens to {part_path}."
-                )
-
-        # Flush remaining tokens
-        if buffer_tokens:
-            part_path = f"{output_path}.part{part_idx}.bin"
-            np.asarray(buffer_tokens, dtype=np.uint16).tofile(part_path)
-            chunk_files.append(part_path)
-            buffer_tokens.clear()
-            LOGGER.info(
-                f"[FILE_PROCESSOR] Saved {len(buffer_tokens)} tokens to {part_path}."
-            )
-
-        LOGGER.info(f"[FILE_PROCESSOR] Merging {len(chunk_files)} chunks...")
-        total_tokens = 0
-        for p in chunk_files:
-            total_tokens += os.path.getsize(p) // np.dtype(np.uint16).itemsize
-        arr = np.memmap(output_path, dtype=np.uint16, mode="w+", shape=(total_tokens,))
+        arr = np.memmap(
+            output_path, dtype=np.uint16, mode="w+", shape=(total_number_of_tokens,)
+        )
         offset = 0
-        for p in chunk_files:
-            data = np.fromfile(p, dtype=np.uint16)
-            arr[offset : offset + data.size] = data
-            offset += data.size
-        arr.flush()
-        for p in chunk_files:
-            try:
-                os.remove(p)
-            except OSError:
-                pass
-        LOGGER.info(f"[FILE_PROCESSOR] Saved {total_tokens} tokens to {output_path}.")
+        processed_tokens = 0
+        uint16_max = np.iinfo(np.uint16).max
+        with tqdm(
+            total=total_number_of_tokens, desc="Converting file to tokens", unit="token"
+        ) as pbar:
+            for ind, pre_token in enumerate(
+                self.pre_tokenize(
+                    chunk_split_special_token=chunk_split_special_token,
+                    special_tokens=special_tokens,
+                )
+            ):
+                if pre_token not in pre_token_to_tokens:
+                    raise KeyError("Missing pre_token in mapping")
+
+                tokens = pre_token_to_tokens[pre_token]
+                if len(tokens) > 0:
+                    # Checking for: 1. Offset exceeds allocated size; 2. Token id out of uint16 range
+                    if offset + len(tokens) > total_number_of_tokens:
+                        raise ValueError("Memmap slice exceeds allocated size")
+                    if max(tokens) > uint16_max or min(tokens) < 0:
+                        raise ValueError("Token id out of uint16 range")
+
+                processed_tokens += len(tokens)
+                arr[offset : offset + len(tokens)] = tokens
+                offset += len(tokens)
+
+                # Periodically flush to disk
+                if ind % 100000 == 0:
+                    arr.flush()
+
+                pbar.update(len(tokens))
+
+            # Final flush
+            arr.flush()
+
+        if (
+            offset != total_number_of_tokens
+            or processed_tokens != total_number_of_tokens
+        ):
+            raise ValueError("Memmap not fully filled or token count mismatch")
+
+        LOGGER.info(
+            f"[FILE_PROCESSOR] Saved {total_number_of_tokens} tokens to {output_path}."
+        )
 
 
 def _find_chunk_boundaries(
@@ -255,9 +280,9 @@ def _file_pre_tokenization_worker(
 
 
 if __name__ == "__main__":
-    tokenizer_path = "/mnt/bn/suhe-v6/zijian/cs336/owt_bpe_tokenizer"
-    input_path = "/mnt/bn/suhe-v6/zijian/cs336/data/owt_train.txt"
-    output_path = "/mnt/bn/suhe-v6/zijian/cs336/data/owt_train.tokens.uint16.npy"
+    tokenizer_path = "cs336/owt_bpe_tokenizer"
+    input_path = "cs336/data/owt_train.txt"
+    output_path = "cs336/data/owt_train.tokens.uint16.npy"
     special_tokens = ["<|endoftext|>"]
     special_tokens = sorted(special_tokens, key=len, reverse=True)
 
@@ -266,5 +291,5 @@ if __name__ == "__main__":
         tokenizer_path=tokenizer_path,
         special_tokens=special_tokens,
         output_path=output_path,
-        num_workers=64
+        num_workers=64,
     )
