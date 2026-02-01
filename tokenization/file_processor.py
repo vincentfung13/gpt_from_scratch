@@ -49,7 +49,6 @@ class FileProcessor:
 
         self.pre_tokens_count = {}
         for pre_token in self.pre_tokenize(
-            num_chunks=self.num_process_chunks,
             chunk_split_special_token=chunk_split_special_token,
             special_tokens=special_tokens,
         ):
@@ -60,7 +59,6 @@ class FileProcessor:
 
     def pre_tokenize(
         self,
-        num_chunks,
         num_workers=12,
         chunk_split_special_token: str = "<|endoftext|>",
         special_tokens: List[str] = ["<|endoftext|>"],
@@ -70,7 +68,6 @@ class FileProcessor:
 
         Args:
             raw_input: Either a file path (str) or a bytestream (bytes).
-            num_chunks: Number of chunks to split the raw_input for parallel processing.
             chunk_split_special_token: Special token used to split the file into chunks safely.
             special_tokens: List of special token strings to split on.
 
@@ -79,7 +76,7 @@ class FileProcessor:
         """
         with open(self.file_path, "rb") as fb:
             boundaries = _find_chunk_boundaries(
-                fb, num_chunks, chunk_split_special_token.encode("utf-8")
+                fb, self.num_process_chunks, chunk_split_special_token.encode("utf-8")
             )
 
         # Process chunks in parallel
@@ -112,7 +109,6 @@ class FileProcessor:
         self,
         tokenizer_path: str,
         output_path: str,
-        num_chunks: int = 12,
         num_workers: int = 32,
         chunk_split_special_token: str = "<|endoftext|>",
         special_tokens: List[str] = ["<|endoftext|>"],
@@ -142,27 +138,53 @@ class FileProcessor:
             for pre_token, encoded_tokens in results:
                 pre_token_to_tokens[pre_token] = encoded_tokens
 
-        # Pack results into list
         LOGGER.info("[FILE_PROCESSOR] Converting file to tokens...")
-        all_tokens = []
+        chunk_files = []
+        buffer_tokens = []
+        flush_every_tokens = 5000000
+        part_idx = 0
         for pre_token in self.pre_tokenize(
-            num_chunks=num_chunks,
             chunk_split_special_token=chunk_split_special_token,
             special_tokens=special_tokens,
         ):
-            all_tokens.extend(pre_token_to_tokens[pre_token])
+            buffer_tokens.extend(pre_token_to_tokens[pre_token])
+            if len(buffer_tokens) >= flush_every_tokens:
+                part_path = f"{output_path}.part{part_idx}.bin"
+                np.asarray(buffer_tokens, dtype=np.uint16).tofile(part_path)
+                chunk_files.append(part_path)
+                buffer_tokens.clear()
+                part_idx += 1
+                LOGGER.info(
+                    f"[FILE_PROCESSOR] Saved {len(buffer_tokens)} tokens to {part_path}."
+                )
 
-        # Save to numpy
-        arr = np.memmap(
-            output_path, dtype=np.uint16, mode="w+", shape=(len(all_tokens),)
-        )
-        arr[:] = all_tokens
+        # Flush remaining tokens
+        if buffer_tokens:
+            part_path = f"{output_path}.part{part_idx}.bin"
+            np.asarray(buffer_tokens, dtype=np.uint16).tofile(part_path)
+            chunk_files.append(part_path)
+            buffer_tokens.clear()
+            LOGGER.info(
+                f"[FILE_PROCESSOR] Saved {len(buffer_tokens)} tokens to {part_path}."
+            )
 
-        # Flush to disk
+        LOGGER.info(f"[FILE_PROCESSOR] Merging {len(chunk_files)} chunks...")
+        total_tokens = 0
+        for p in chunk_files:
+            total_tokens += os.path.getsize(p) // np.dtype(np.uint16).itemsize
+        arr = np.memmap(output_path, dtype=np.uint16, mode="w+", shape=(total_tokens,))
+        offset = 0
+        for p in chunk_files:
+            data = np.fromfile(p, dtype=np.uint16)
+            arr[offset : offset + data.size] = data
+            offset += data.size
         arr.flush()
-        LOGGER.info(
-            f"[FILE_PROCESSOR] Saved {len(all_tokens)} tokens to {output_path}."
-        )
+        for p in chunk_files:
+            try:
+                os.remove(p)
+            except OSError:
+                pass
+        LOGGER.info(f"[FILE_PROCESSOR] Saved {total_tokens} tokens to {output_path}.")
 
 
 def _find_chunk_boundaries(
@@ -233,9 +255,9 @@ def _file_pre_tokenization_worker(
 
 
 if __name__ == "__main__":
-    tokenizer_path = "owt_bpe_tokenizer"
-    input_path = "data/owt_train.txt"
-    output_path = "data/owt_train.tokens.uint16.npy"
+    tokenizer_path = "/mnt/bn/suhe-v6/zijian/cs336/owt_bpe_tokenizer"
+    input_path = "/mnt/bn/suhe-v6/zijian/cs336/data/owt_train.txt"
+    output_path = "/mnt/bn/suhe-v6/zijian/cs336/data/owt_train.tokens.uint16.npy"
     special_tokens = ["<|endoftext|>"]
     special_tokens = sorted(special_tokens, key=len, reverse=True)
 
@@ -244,4 +266,5 @@ if __name__ == "__main__":
         tokenizer_path=tokenizer_path,
         special_tokens=special_tokens,
         output_path=output_path,
+        num_workers=64
     )

@@ -94,7 +94,6 @@ class BPETokenizer:
         vocab_size: int,
         save_dir: Union[None, str],
         special_tokens: List[str] = ["<|endoftext|>"],
-        num_chunks: int = 8,
         file_split_token: str = "<|endoftext|>",
     ) -> None:
         """
@@ -111,7 +110,6 @@ class BPETokenizer:
             vocab_size: Target vocabulary size (includes special tokens and base bytes).
             save_dir: Directory to save the pre-trained tokenizer, set to None to disable saving (e.g for testing).
             special_tokens: List of special token strings to include in vocabulary.
-            num_chunks: Number of chunks to split the input file for parallel processing.
             file_split_token: Special token used to split the file into chunks safely.
         """
         LOGGER.info(f"Starting BPE training on {input_path}")
@@ -139,7 +137,7 @@ class BPETokenizer:
         # Returns a Counter mapping pre-token tuples (of bytes) to their counts
         from gpt_from_scratch.tokenization.file_processor import FileProcessor
 
-        LOGGER.info(f"Running pre-tokenization with {num_chunks} chunks...")
+        LOGGER.info("Running pre-tokenization...")
         fp = FileProcessor(file_path=input_path)
         pre_token_counts: Counter[Tuple[bytes, ...]] = fp.get_pre_token_counts(
             chunk_split_special_token=file_split_token,
@@ -450,8 +448,8 @@ if __name__ == "__main__":
     bpe = BPETokenizer()
     bpe.train(
         input_path="/mnt/bn/suhe-v6/zijian/cs336/data/owt_train.txt",
+        save_dir="/mnt/bn/suhe-v6/zijian/cs336/owt_bpe",
         vocab_size=32000,
-        num_chunks=32,
     )
     print(
         bpe.decode(
