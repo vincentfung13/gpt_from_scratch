@@ -3,13 +3,13 @@ import os
 import hydra
 from omegaconf import DictConfig
 
-from gpt_from_scratch.nn.lm import TransformerLM
-from gpt_from_scratch.nn.functionals import cross_entropy_loss
-from gpt_from_scratch.optimizers.adamw import AdamW
-from gpt_from_scratch.optimizers.lr_scheduling import CosineAnnealingScheduler
-from gpt_from_scratch.data_loaders.numpy_batch_loader import NumpyBatchLoader
-from gpt_from_scratch.trainers.utils import save_checkpoint, load_checkpoint
-from gpt_from_scratch import LOGGER
+from mew.nn.lm import TransformerLM
+from mew.nn.functionals import cross_entropy_loss
+from mew.optimizers.adamw import AdamW
+from mew.optimizers.lr_scheduling import CosineAnnealingScheduler
+from mew.data_loaders.numpy_batch_loader import NumpyBatchLoader
+from mew.trainers.utils import save_checkpoint, load_checkpoint
+from mew import LOGGER
 
 
 class NPTTrainer:

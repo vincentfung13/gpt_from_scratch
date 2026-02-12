@@ -1,8 +1,8 @@
 import torch
 import torch.nn as nn
 
-from gpt_from_scratch.nn.layers import Linear, Embedding, RMSNorm
-from gpt_from_scratch.nn.transformers import TransformerBlock
+from mew.nn.layers import Linear, Embedding, RMSNorm
+from mew.nn.transformers import TransformerBlock
 
 
 class TransformerLM(nn.Module):

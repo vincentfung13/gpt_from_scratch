@@ -3,7 +3,7 @@ import os
 import numpy as np
 from typing import Union, Tuple
 
-from gpt_from_scratch import LOGGER
+from mew import LOGGER
 
 
 class NumpyBatchLoader:

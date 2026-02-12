@@ -4,9 +4,9 @@ import torch
 import torch.nn as nn
 import torch.nn.init as init
 
-from gpt_from_scratch.nn.layers import RMSNorm, SwiGLU
-from gpt_from_scratch.nn.functionals import scaled_dot_product
-from gpt_from_scratch.nn.rope import RotaryPositionalEmbedding
+from mew.nn.layers import RMSNorm, SwiGLU
+from mew.nn.functionals import scaled_dot_product
+from mew.nn.rope import RotaryPositionalEmbedding
 
 
 class TransformerBlock(nn.Module):

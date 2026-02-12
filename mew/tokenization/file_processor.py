@@ -6,8 +6,8 @@ from concurrent.futures import ProcessPoolExecutor
 from multiprocessing import Pool
 from tqdm import tqdm
 
-from gpt_from_scratch.tokenization.tokenization_utils import pre_tokenize_text
-from gpt_from_scratch import LOGGER
+from mew.tokenization.tokenization_utils import pre_tokenize_text
+from mew import LOGGER
 
 # Global tokenizer used by worker processes
 _GLOBAL_TOKENIZER = None
@@ -271,19 +271,3 @@ def _file_pre_tokenization_worker(
         )
     # 2. Use the core pre-tokenization logic
     return pre_tokenize_text(chunk_content, special_tokens)
-
-
-if __name__ == "__main__":
-    tokenizer_path = "cs336/owt_bpe_tokenizer"
-    input_path = "cs336/data/owt_train.txt"
-    output_path = "cs336/data/owt_train.tokens.uint16.npy"
-    special_tokens = ["<|endoftext|>"]
-    special_tokens = sorted(special_tokens, key=len, reverse=True)
-
-    fp = FileProcessor(file_path=input_path)
-    fp.tokenize_file(
-        tokenizer_path=tokenizer_path,
-        special_tokens=special_tokens,
-        output_path=output_path,
-        num_workers=64,
-    )
