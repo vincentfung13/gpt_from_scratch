@@ -1,7 +1,6 @@
 import importlib.metadata
 import logging
 
-
 __version__ = importlib.metadata.version("cs336_basics")
 
 # Configure logging format with human-readable timestamps if not already configured

@@ -1,5 +1,4 @@
 import os
-import pickle
 import numpy as np
 from collections import Counter
 from typing import Iterator, Tuple, List, BinaryIO
