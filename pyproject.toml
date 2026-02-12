@@ -1,5 +1,5 @@
 [project]
-name = "gpt_from_scratch"
+name = "mew"
 version = "0.0.1"
 description = "Implement GPT from scratch"
 readme = "README.md"

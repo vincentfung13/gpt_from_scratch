@@ -3,15 +3,11 @@ import os
 import numpy as np
 from typing import Union, Tuple
 
-from gpt_from_scratch import LOGGER
+from mew import LOGGER
 
 
 class NumpyBatchLoader:
-    def __init__(
-        self,
-        data: Union[str, np.memmap],
-        seq_len: int,
-    ):
+    def __init__(self, data: Union[str, np.memmap], seq_len: int, batch_size: int = -1):
         """
         Creates a data loader that loads the training data and prepares batches for training for 1 epoch.
 

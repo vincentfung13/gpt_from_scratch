@@ -1,7 +1,7 @@
 import regex as re
 from typing import List, Dict, Tuple
 
-from gpt_from_scratch.tokenization import cfg
+from mew.tokenization import cfg
 
 
 def find_most_freq_pair_to_merge(

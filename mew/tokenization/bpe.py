@@ -7,11 +7,11 @@ from tqdm import tqdm
 from typing import Iterable, List, Dict, Tuple, Optional, Union
 from collections import Counter, defaultdict
 
-from gpt_from_scratch.tokenization.tokenization_utils import (
+from mew.tokenization.tokenization_utils import (
     find_most_freq_pair_to_merge,
     encode_string,
 )
-from gpt_from_scratch import LOGGER
+from mew import LOGGER
 
 
 class BPETokenizer:
@@ -441,20 +441,3 @@ class BPETokenizer:
         LOGGER.debug(
             f"Saved tokenizer files to {save_dir}: vocab ({len(self.vocab)} tokens), merges ({len(self.merges)} merges), special_tokens ({len(self.special_tokens)} tokens)"
         )
-
-
-if __name__ == "__main__":
-    # Example usage: train a BPE tokenizer on a text corpus
-    bpe = BPETokenizer()
-    bpe.train(
-        input_path="cs336/data/owt_train.txt",
-        save_dir="cs336/owt_bpe",
-        vocab_size=32000,
-    )
-    print(
-        bpe.decode(
-            bpe.encode(
-                "Hello <|endoftext|><|endoftext|> world my name is deep shit <|endoftext|>"
-            )
-        )
-    )

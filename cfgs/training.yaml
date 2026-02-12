@@ -1,0 +1,31 @@
+data:
+  train_file: /mnt/bn/suhe-v6/zijian/cs336/data/owt_train.tokens.uint16.npy 
+  val_file: /mnt/bn/suhe-v6/zijian/cs336/data/owt_val.tokens.uint16.npy
+  batch_size: 128
+  seq_len: 2048
+   
+model:
+  d_model: 512
+  d_ff: 2048
+  num_heads: 128
+  vocab_size: 32000
+  num_transformer_layers: 10
+  rope_theta: 100.0
+
+optim:
+  lr: 1e-4 
+  weight_decay: 0.01
+  betas: [0.9, 0.999]
+  warmup:
+    method: cosine_annealing
+    max_lr: 1e-4
+    min_lr: 1e-6
+    warmup_iters: 1000
+    cosine_cyle_iters: 1000 
+
+trainer:
+  total_steps: 10000
+  save_dir: /mnt/bn/suhe-v6/zijian/cs336/checkpoints/test_run
+  save_freq: 1000
+  resume_checkpoint_path: null
+  resume: false

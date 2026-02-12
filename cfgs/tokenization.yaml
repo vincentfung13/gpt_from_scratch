@@ -1,0 +1,16 @@
+task_name: train_bpe
+
+# Pre-tokenization pattern used for GPT-style BPE tokenizers.
+# This should be a raw string (regex) and matches words, numbers, contractions, punctuation, and whitespaces.
+pre_tokenization_pattern: '(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+'
+special_tokens: ['<|endoftext|>']
+file_split_token: '<|endoftext|>'
+
+training:
+  input_path: data/train.txt
+  save_dir: bpe_output 
+  vocab_size: 5000
+
+file_tokenization:
+  tokenizer_path: TOKENIZER_PATH 
+  save_path: SAVE_PATH 
