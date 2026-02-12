@@ -2,7 +2,7 @@ import hydra
 from omegaconf import DictConfig
 
 from mew.tokenization.bpe import BPETokenizer
-from mew.tokenization.file_processor import FileProcessor 
+from mew.tokenization.file_processor import FileProcessor
 
 
 def _train_bpe(cfg: DictConfig) -> None:
@@ -17,7 +17,7 @@ def _train_bpe(cfg: DictConfig) -> None:
 
 
 def _tokenize_file(cfg: DictConfig) -> None:
-    special_tokens = cfg.special_tokens 
+    special_tokens = cfg.special_tokens
     special_tokens = sorted(special_tokens, key=len, reverse=True)
 
     fp = FileProcessor(file_path=cfg.file_tokenization.input_path)
