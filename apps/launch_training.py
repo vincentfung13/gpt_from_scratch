@@ -1,3 +1,6 @@
+import hydra
+from omegaconf import DictConfig
+
 from mew.trainers.npt_trainer import NPTTrainer
 
 
