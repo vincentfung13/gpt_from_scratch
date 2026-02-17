@@ -1,9 +1,10 @@
 import torch
 import os
 import numpy as np
+import logging
 from typing import Union, Tuple
 
-from mew import LOGGER
+LOGGER = logging.getLogger(__name__)
 
 
 class NumpyBatchLoader:

@@ -1,8 +1,6 @@
 import regex as re
 from typing import List, Dict, Tuple
 
-from mew.tokenization import cfg
-
 
 def find_most_freq_pair_to_merge(
     pair_freq: Dict[Tuple[bytes, bytes], int],
@@ -35,10 +33,11 @@ def encode_string(
     input_string: str,
     get_token_ind: Dict[bytes, int],
     merges: List[tuple[bytes, bytes]],
+    pre_tokenization_pattern: str,
 ):
     # Pre-tokenize, apply merges, then find indices
     tokens = []
-    for match in re.finditer(cfg.PRE_TOKENIZATION_PATTERN, input_string):
+    for match in re.finditer(pre_tokenization_pattern, input_string):
         # Encode word to bytes, then split into individual bytes (byte-level BPE)
         word_bytes = match.group().encode("utf-8")
         token_list = [bytes([i]) for i in word_bytes]
@@ -66,6 +65,7 @@ def encode_string(
 
 def pre_tokenize_text(
     text: str,
+    pre_tokenization_pattern: str,
     special_tokens: List[str] = ["<|endoftext|>"],
 ) -> List[Tuple[bytes, ...]]:
     """
@@ -73,6 +73,7 @@ def pre_tokenize_text(
 
     Args:
         text: Input text string to pre-tokenize.
+        pre_tokenization_pattern: regex pattern used to pre-tokenization the input text.
         special_tokens: List of special token strings to split on.
 
     Returns:
@@ -85,7 +86,7 @@ def pre_tokenize_text(
     pattern = r"|".join(re.escape(token) for token in sorted_special_tokens)
     for sub_chunk in re.split(pattern, text):
         # Run pre-tokenization and count each pre-token
-        for match in re.finditer(cfg.PRE_TOKENIZATION_PATTERN, sub_chunk):
+        for match in re.finditer(pre_tokenization_pattern, sub_chunk):
             # Encode word to bytes, then split into individual bytes (byte-level BPE)
             word_bytes = match.group().encode("utf-8")
             pre_token_bytes_tuple = tuple(bytes([i]) for i in word_bytes)

@@ -1,3 +1,7 @@
+defaults:
+  - _self_
+  - override hydra/job_logging: custom
+
 data:
   train_file: /mnt/bn/suhe-v6/zijian/cs336/data/owt_train.tokens.uint16.npy 
   val_file: /mnt/bn/suhe-v6/zijian/cs336/data/owt_val.tokens.uint16.npy

@@ -13,6 +13,7 @@ def _train_bpe(cfg: DictConfig) -> None:
         vocab_size=cfg.training.vocab_size,
         special_tokens=cfg.special_tokens,
         file_split_token=cfg.file_split_token,
+        pre_tokenization_pattern=cfg.pre_tokenization_pattern,
     )
 
 
@@ -23,6 +24,7 @@ def _tokenize_file(cfg: DictConfig) -> None:
     fp = FileProcessor(file_path=cfg.file_tokenization.input_path)
     fp.tokenize_file(
         tokenizer_path=cfg.file_tokenization.tokenizer_path,
+        pre_tokenization_pattern=cfg.pre_tokenization_pattern,
         special_tokens=special_tokens,
         output_path=cfg.file_tokenization.save_path,
         num_workers=cfg.file_tokenization.num_workers,

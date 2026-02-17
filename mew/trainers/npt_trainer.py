@@ -1,4 +1,5 @@
 import os
+import logging
 
 import hydra
 from omegaconf import DictConfig
@@ -9,7 +10,8 @@ from mew.optimizers.adamw import AdamW
 from mew.optimizers.lr_scheduling import CosineAnnealingScheduler
 from mew.data_loaders.numpy_batch_loader import NumpyBatchLoader
 from mew.trainers.utils import save_checkpoint, load_checkpoint
-from mew import LOGGER
+
+LOGGER = logging.getLogger(__name__)
 
 
 class NPTTrainer:

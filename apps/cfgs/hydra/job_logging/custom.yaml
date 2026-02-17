@@ -1,0 +1,19 @@
+# apps/cfgs/hydra/job_logging/custom.yaml
+version: 1
+formatters:
+  simple:
+    format: '[%(asctime)s][%(name)s][%(levelname)s] - %(message)s'
+handlers:
+  console:
+    class: logging.StreamHandler
+    formatter: simple
+    stream: ext://sys.stdout
+  file:
+    class: logging.FileHandler
+    formatter: simple
+    # Hydra automatically creates a .log file named after your job in the output dir
+    filename: ${hydra:job.name}.log
+root:
+  handlers: [console, file]
+# This is key to fixing duplicates: it stops other loggers from interfering
+disable_existing_loggers: false
