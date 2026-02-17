@@ -4,8 +4,10 @@ import logging
 import hydra
 from omegaconf import DictConfig
 
+import torch
+
 from mew.nn.lm import TransformerLM
-from mew.nn.functionals import cross_entropy_loss
+from mew.nn.functionals import cross_entropy
 from mew.optimizers.adamw import AdamW
 from mew.optimizers.lr_scheduling import CosineAnnealingScheduler
 from mew.data_loaders.numpy_batch_loader import NumpyBatchLoader
@@ -14,18 +16,21 @@ from mew.trainers.utils import save_checkpoint, load_checkpoint
 LOGGER = logging.getLogger(__name__)
 
 
+torch.autograd.set_detect_anomaly(True)
+
+
 class NPTTrainer:
     def __init__(self, cfg: DictConfig):
         # Init dataloader
         LOGGER.info(
-            "[NTP_TRAINER] Init dataloader with batch_size=%d, seq_len=%d",
-            cfg.batch_size,
-            cfg.seq_len,
+            "[NTP_TRAINER] Init dataloader from %s with seq_len=%d",
+            cfg.data.train_file,
+            cfg.data.seq_len,
         )
         self.data_loader = NumpyBatchLoader(
-            data=cfg.data,
-            batch_size=cfg.batch_size,
-            seq_len=cfg.seq_len,
+            data_path=cfg.data.train_file,
+            seq_len=cfg.data.seq_len,
+            batch_size=cfg.data.batch_size,
         )
 
         # Init model
@@ -37,8 +42,8 @@ class NPTTrainer:
             vocab_size=cfg.model.vocab_size,
             context_len=cfg.model.context_len,
             num_transformer_layers=cfg.model.num_transformer_layers,
-            rope_theta=cfg.model.rope.theta,
-        )
+            rope_theta=cfg.model.rope_theta,
+        ).cuda()
 
         # Init optimizer and lr scheduler
         self.optim = AdamW(
@@ -53,13 +58,13 @@ class NPTTrainer:
             max_learning_rate=cfg.optim.lr,
             min_learning_rate=cfg.optim.min_lr,
             warmup_iters=cfg.optim.warmup_iters,
-            cosine_cycle_iters=cfg.optim.cosine_cycle_iters,
+            cosine_cycle_iters=cfg.optim.cosine_cyle_iters,
         )
 
         # Load checkpoint
         if cfg.trainer.resume:
             LOGGER.info(
-                "[NPT_TRAINER] Resume training from checkpoint: %s",
+                "Resume training from checkpoint: %s",
                 cfg.trainer.resume_checkpoint_path,
             )
             load_checkpoint(
@@ -76,24 +81,23 @@ class NPTTrainer:
         for step in range(self.cfg.trainer.total_steps):
             # Get batch
             data, target = self.data_loader.get_batch(
-                batch_size=self.cfg.batch_size,
                 device=self.cfg.device,
             )
 
             # Forward
             logits = self.model(data)
-            loss = cross_entropy_loss(logits, target)
+            loss = cross_entropy(logits, target)
 
             # Backward
-            self.optimizer.zero_grad()
+            self.optim.zero_grad()
             loss.backward()
-            self.optimizer.step()
+            self.optim.step()
             self.lr_scheduler.step()
 
             # log progress
             if step > 0 and step % self.cfg.trainer.log_freq == 0:
                 LOGGER.info(
-                    "[NPT_TRAINER] Step [%d/%d], Loss: %.4f, LR: %.6f",
+                    "Step [%d/%d], Loss: %.4f, LR: %.6f",
                     step,
                     self.cfg.trainer.total_steps,
                     loss.item(),
@@ -112,7 +116,7 @@ class NPTTrainer:
                     optimizer=self.optim,
                     lr_scheduler=self.lr_scheduler,
                 )
-                LOGGER.info(f"[NPT_TRAINER] Checkpoint saved to {ckpt_path}")
+                LOGGER.info(f"Checkpoint saved to {ckpt_path}")
 
 
 @hydra.main(version_base=None, config_path="cfgs", config_name="training")

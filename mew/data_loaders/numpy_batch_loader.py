@@ -1,66 +1,66 @@
 import torch
-import os
 import numpy as np
 import logging
-from typing import Union, Tuple
+from typing import Tuple
 
 LOGGER = logging.getLogger(__name__)
 
 
 class NumpyBatchLoader:
-    def __init__(self, data: Union[str, np.memmap], seq_len: int, batch_size: int = -1):
+    def __init__(self, data_path: str, seq_len: int, batch_size: int, dtype=np.uint16):
         """
-        Creates a data loader that loads the training data and prepares batches for training for 1 epoch.
-
-        Arguments:
-            data: either a path to a numpy memmap file or a numpy memmap object.
-                data should be of size (total_number_of_token, )
-            seq_len: training seq len
+        Memory-optimized loader for massive memmap files.
         """
-        if isinstance(data, str):
-            assert os.path.exists(data)
-            self.data = np.memmap(filename=data, dtype=np.uint16, mode="r")
-        else:
-            self.data = data
+        self.data = np.memmap(data_path, dtype=dtype, mode="r")
         self.seq_len = seq_len
-        self.token_num = len(data)
-        self.available_indices = set(np.arange(self.token_num - self.seq_len).tolist())
-        LOGGER.info(f"[DATA_LOADER] Loaded {self.token_num} tokens.")
+        self.batch_size = batch_size
+        self.token_num = len(self.data)
 
-    def get_batch(
-        self,
-        batch_size: int,
-        device: str,
-    ) -> Tuple[torch.LongTensor, torch.LongTensor]:
-        """
-        Arguments:
-            batch_size: training batch size
-            device: "cpu|gpu|mps (for apple silicon)"
+        # Instead of every index, we track "chunks" or "offsets"
+        # Total valid starting positions
+        self.num_samples = self.token_num - seq_len - 1
+        # We calculate how many batches we can fit in one epoch
+        self.num_batches = self.num_samples // batch_size
 
-        Returns: -> Tuple[data, target], where:
-            data: a batch of data of size (batch_size, seq_len)
-            target: expected next token of size (batch_size)
-        """
-        if len(self.available_indices) < batch_size:
-            LOGGER.info(
-                f"[DATA_LOADER] Only {len(self.available_indices)} tokens left. "
-                f"Resetting available indices..."
-            )
-            self.available_indices = set(
-                np.arange(self.token_num - self.seq_len).tolist()
-            )
+        # We only store the batch count, not every index
+        self.batch_indices = np.arange(self.num_batches)
+        self.current_batch_idx = 0
 
-        # Sample batch_size indices from available_indices
-        indices = np.random.choice(
-            list(self.available_indices), size=batch_size, replace=False
+        self._shuffle_indices()
+        LOGGER.info(
+            f"Mapped {self.token_num} tokens. "
+            f"Approx {self.num_batches} batches per epoch."
         )
-        self.available_indices -= set(indices)
 
-        # Prepare data and target and move them to specified device
-        data = np.stack([self.data[i : i + self.seq_len] for i in indices])
-        data = torch.from_numpy(data).to(device).long()
+    def _shuffle_indices(self):
+        """Shuffles the batch order at the start of an epoch."""
+        np.random.shuffle(self.batch_indices)
+        self.current_batch_idx = 0
 
-        target = np.stack([self.data[i + 1 : i + self.seq_len + 1] for i in indices])
-        target = torch.from_numpy(target).to(device).long()
+    def get_batch(self, device: str) -> Tuple[torch.Tensor, torch.Tensor]:
+        if self.current_batch_idx >= self.num_batches:
+            LOGGER.info("Epoch complete. Re-shuffling...")
+            self._shuffle_indices()
 
-        return data, target
+        # Get the starting offset for this batch
+        # We jump by batch_size to ensure distinct windows
+        start_idx = self.batch_indices[self.current_batch_idx] * self.batch_size
+        self.current_batch_idx += 1
+
+        # Generate indices for the current batch
+        # Note: This samples contiguous blocks which is standard for LLM pretraining efficiency,
+        # but the order of these blocks is randomized.
+        indices = np.arange(start_idx, start_idx + self.batch_size)
+
+        # Efficient batch construction
+        x_list, y_list = [], []
+        for i in indices:
+            # Slicing memmap is O(1) memory as it returns a view
+            x_list.append(self.data[i : i + self.seq_len])
+            y_list.append(self.data[i + 1 : i + self.seq_len + 1])
+
+        # Convert to torch directly from numpy views
+        x = torch.from_numpy(np.stack(x_list)).to(device).long()
+        y = torch.from_numpy(np.stack(y_list)).to(device).long()
+
+        return x, y
