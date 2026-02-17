@@ -3,15 +3,17 @@ import time
 import pickle
 import os
 import regex as re
+import logging
 from tqdm import tqdm
 from typing import Iterable, List, Dict, Tuple, Optional, Union
 from collections import Counter, defaultdict
 
-from gpt_from_scratch.tokenization.tokenization_utils import (
+from mew.tokenization.tokenization_utils import (
     find_most_freq_pair_to_merge,
     encode_string,
 )
-from gpt_from_scratch import LOGGER
+
+LOGGER = logging.getLogger(__name__)
 
 
 class BPETokenizer:
@@ -30,6 +32,7 @@ class BPETokenizer:
         vocab: Optional[Dict[int, bytes]] = None,
         merges: Optional[List[Tuple[bytes, bytes]]] = None,
         special_tokens: Optional[List[str]] = None,
+        pre_tokenization_pattern: Optional[str] = None,
     ) -> None:
         """
         Initialize the BPE tokenizer.
@@ -41,6 +44,7 @@ class BPETokenizer:
                     of merging. If None, tokenizer must be trained before use.
             special_tokens: List of special token strings (e.g., ["<|endoftext|>"]).
                            If None, defaults to empty list.
+            pre_tokenization_pattern: regex pattern used to pre-tokenization the input text.
         """
         self.vocab: Dict[int, bytes] = vocab if vocab is not None else {}
         self.get_token_ind: Dict[bytes, int] = {
@@ -49,6 +53,11 @@ class BPETokenizer:
         self.merges: List[Tuple[bytes, bytes]] = merges if merges is not None else []
         self.special_tokens: List[str] = (
             special_tokens if special_tokens is not None else []
+        )
+        self.pre_tokenization_pattern = (
+            pre_tokenization_pattern
+            if pre_tokenization_pattern is not None
+            else r"(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"
         )
 
         # Add special token into vocab
@@ -60,38 +69,52 @@ class BPETokenizer:
                 self.get_token_ind[special_token] = new_token_ind
 
     @classmethod
-    def from_file(
-        cls,
-        vocab_filepath: str,
-        merges_filepath: str,
-        special_tokens: Optional[List[str]] = ["<|endoftext|>"],
-    ) -> "BPETokenizer":
+    def from_dir(cls, save_dir: str) -> "BPETokenizer":
         """
         Load a trained tokenizer from pickle files.
 
         Args:
-            vocab_filepath: Path to the vocabulary pickle file.
-            merges_filepath: Path to the merges pickle file.
-            special_tokens: Optional list of special tokens. If None, will attempt
-                           to load from special_tokens.txt in the same directory.
+            save_dir: directory of the tokenizer files.
 
         Returns:
             BPETokenizer instance loaded from files.
         """
         # Load vocab from pickle file (binary mode required for pickle)
+        vocab_filepath = os.path.join(save_dir, "bpe_vocab.pkl")
         with open(vocab_filepath, "rb") as f:
             vocab: Dict[int, bytes] = pickle.load(f)
 
         # Load merges from pickle file (binary mode required for pickle)
+        merges_filepath = os.path.join(save_dir, "bpe_merges.pkl")
         with open(merges_filepath, "rb") as f:
             merges: List[Tuple[bytes, bytes]] = pickle.load(f)
 
-        return cls(vocab=vocab, merges=merges, special_tokens=special_tokens)
+        # Load special tokens
+        special_tokens_filepath = os.path.join(save_dir, "special_tokens.txt")
+        with open(special_tokens_filepath, "r") as f:
+            special_tokens = [line.strip() for line in f]
+
+        # Load pre_tokenization_pattern
+        pre_tokenization_pattern_filepath = os.path.join(
+            save_dir, "pre_tokenization_pattern.txt"
+        )
+        pre_tokenization_pattern = None
+        if os.path.exists(pre_tokenization_pattern_filepath):
+            with open(pre_tokenization_pattern_filepath, "r") as f:
+                pre_tokenization_pattern = f.read().strip()
+
+        return cls(
+            vocab=vocab,
+            merges=merges,
+            special_tokens=special_tokens,
+            pre_tokenization_pattern=pre_tokenization_pattern,
+        )
 
     def train(
         self,
         input_path: str,
         vocab_size: int,
+        pre_tokenization_pattern: str,
         save_dir: Union[None, str],
         special_tokens: List[str] = ["<|endoftext|>"],
         file_split_token: str = "<|endoftext|>",
@@ -108,6 +131,7 @@ class BPETokenizer:
         Args:
             input_path: Path to the training text file.
             vocab_size: Target vocabulary size (includes special tokens and base bytes).
+            pre_tokenization_pattern: regex pattern used to pre-tokenization the input text.
             save_dir: Directory to save the pre-trained tokenizer, set to None to disable saving (e.g for testing).
             special_tokens: List of special token strings to include in vocabulary.
             file_split_token: Special token used to split the file into chunks safely.
@@ -135,12 +159,13 @@ class BPETokenizer:
 
         # Run pre-tokenization to split text into chunks and count occurrences
         # Returns a Counter mapping pre-token tuples (of bytes) to their counts
-        from gpt_from_scratch.tokenization.file_processor import FileProcessor
+        from mew.tokenization.file_processor import FileProcessor
 
         LOGGER.info("Running pre-tokenization...")
         fp = FileProcessor(file_path=input_path)
         pre_token_counts: Counter[Tuple[bytes, ...]] = fp.get_pre_token_counts(
             chunk_split_special_token=file_split_token,
+            pre_tokenization_pattern=pre_tokenization_pattern,
             special_tokens=special_tokens,
         )
         LOGGER.info(
@@ -324,6 +349,7 @@ class BPETokenizer:
             token: token_ind for token_ind, token in self.vocab.items()
         }
         self.special_tokens = special_tokens
+        self.pre_tokenization_pattern = pre_tokenization_pattern
 
         # Save the trained tokenizer to disk
         if save_dir is not None:
@@ -353,7 +379,10 @@ class BPETokenizer:
         # If there are no special tokens, process the whole text directly
         if not sorted_special_tokens:
             return encode_string(
-                input_string=text, get_token_ind=self.get_token_ind, merges=self.merges
+                input_string=text,
+                get_token_ind=self.get_token_ind,
+                merges=self.merges,
+                pre_tokenization_pattern=self.pre_tokenization_pattern,
             )
 
         # If there are special tokens, split by them first
@@ -375,6 +404,7 @@ class BPETokenizer:
                 input_string=sub_chunk,
                 get_token_ind=self.get_token_ind,
                 merges=self.merges,
+                pre_tokenization_pattern=self.pre_tokenization_pattern,
             )
 
         return tokens
@@ -424,6 +454,9 @@ class BPETokenizer:
         vocab_out_path: str = os.path.join(save_dir, "bpe_vocab.pkl")
         merges_out_path: str = os.path.join(save_dir, "bpe_merges.pkl")
         special_tokens_path: str = os.path.join(save_dir, "special_tokens.txt")
+        pre_tokenization_pattern_path: str = os.path.join(
+            save_dir, "pre_tokenization_pattern.txt"
+        )
 
         # Save vocabulary dictionary as pickle file
         with open(vocab_out_path, "wb") as vocab_f:
@@ -438,23 +471,10 @@ class BPETokenizer:
             for special_token in self.special_tokens:
                 st_f.write(special_token + "\n")
 
+        # Save pre-tokenization pattern as plain text
+        with open(pre_tokenization_pattern_path, "w") as pt_f:
+            pt_f.write(self.pre_tokenization_pattern)
+
         LOGGER.debug(
             f"Saved tokenizer files to {save_dir}: vocab ({len(self.vocab)} tokens), merges ({len(self.merges)} merges), special_tokens ({len(self.special_tokens)} tokens)"
         )
-
-
-if __name__ == "__main__":
-    # Example usage: train a BPE tokenizer on a text corpus
-    bpe = BPETokenizer()
-    bpe.train(
-        input_path="cs336/data/owt_train.txt",
-        save_dir="cs336/owt_bpe",
-        vocab_size=32000,
-    )
-    print(
-        bpe.decode(
-            bpe.encode(
-                "Hello <|endoftext|><|endoftext|> world my name is deep shit <|endoftext|>"
-            )
-        )
-    )

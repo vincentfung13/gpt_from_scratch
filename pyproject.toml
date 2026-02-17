@@ -1,5 +1,5 @@
 [project]
-name = "gpt_from_scratch"
+name = "mew"
 version = "0.0.1"
 description = "Implement GPT from scratch"
 readme = "README.md"
@@ -19,6 +19,7 @@ dependencies = [
     "tqdm>=4.67.1",
     "wandb>=0.19.7",
     "ty>=0.0.1a16",
+    "hydra-core"
 ]
 
 [build-system]
@@ -26,7 +27,7 @@ requires = ["uv_build>=0.8.3,<0.9.0"]
 build-backend = "uv_build"
 
 [tool.uv.build-backend]
-module-name = "gpt_from_scratch"
+module-name = "mew"
 module-root = ""
 
 [tool.uv]

@@ -1,27 +1,25 @@
 import os
-import pickle
 import numpy as np
+import logging
 from collections import Counter
 from typing import Iterator, Tuple, List, BinaryIO
 from concurrent.futures import ProcessPoolExecutor
 from multiprocessing import Pool
 from tqdm import tqdm
 
-from gpt_from_scratch.tokenization.tokenization_utils import pre_tokenize_text
-from gpt_from_scratch import LOGGER
+from mew.tokenization.tokenization_utils import pre_tokenize_text
+
+LOGGER = logging.getLogger(__name__)
 
 # Global tokenizer used by worker processes
 _GLOBAL_TOKENIZER = None
 
 
 def _init_tokenizer(tokenizer_path: str):
-    from gpt_from_scratch.tokenization.bpe import BPETokenizer
+    from mew.tokenization.bpe import BPETokenizer
 
     global _GLOBAL_TOKENIZER
-    _GLOBAL_TOKENIZER = BPETokenizer.from_file(
-        vocab_filepath=os.path.join(tokenizer_path, "bpe_vocab.pkl"),
-        merges_filepath=os.path.join(tokenizer_path, "bpe_merges.pkl"),
-    )
+    _GLOBAL_TOKENIZER = BPETokenizer.from_dir(tokenizer_path)
 
 
 def _tokenize_pre_token_worker(pre_token: Tuple[bytes, ...]):
@@ -43,6 +41,7 @@ class FileProcessor:
 
     def get_pre_token_counts(
         self,
+        pre_tokenization_pattern: str,
         chunk_split_special_token: str = "<|endoftext|>",
         special_tokens: List[str] = ["<|endoftext|>"],
     ) -> Counter[Tuple[bytes, ...], int]:
@@ -51,6 +50,7 @@ class FileProcessor:
 
         self.pre_tokens_count = {}
         for pre_token in self.pre_tokenize(
+            pre_tokenization_pattern=pre_tokenization_pattern,
             chunk_split_special_token=chunk_split_special_token,
             special_tokens=special_tokens,
         ):
@@ -61,6 +61,7 @@ class FileProcessor:
 
     def pre_tokenize(
         self,
+        pre_tokenization_pattern: str,
         num_workers=12,
         chunk_split_special_token: str = "<|endoftext|>",
         special_tokens: List[str] = ["<|endoftext|>"],
@@ -96,6 +97,7 @@ class FileProcessor:
                         self.file_path,
                         start,
                         end,
+                        pre_tokenization_pattern,
                         special_tokens,
                     )
                 next_to_submit = window_size
@@ -111,6 +113,7 @@ class FileProcessor:
                             self.file_path,
                             start,
                             end,
+                            pre_tokenization_pattern,
                             special_tokens,
                         )
                         next_to_submit += 1
@@ -120,12 +123,14 @@ class FileProcessor:
         self,
         tokenizer_path: str,
         output_path: str,
+        pre_tokenization_pattern: str,
         num_workers: int = 32,
         chunk_split_special_token: str = "<|endoftext|>",
         special_tokens: List[str] = ["<|endoftext|>"],
     ) -> Iterator[Tuple[bytes, ...]]:
         # Dedup by pre-tokens
         pre_tokens_count = self.get_pre_token_counts(
+            pre_tokenization_pattern=pre_tokenization_pattern,
             chunk_split_special_token=chunk_split_special_token,
             special_tokens=special_tokens,
         )
@@ -168,6 +173,7 @@ class FileProcessor:
         ) as pbar:
             for ind, pre_token in enumerate(
                 self.pre_tokenize(
+                    pre_tokenization_pattern=pre_tokenization_pattern,
                     chunk_split_special_token=chunk_split_special_token,
                     special_tokens=special_tokens,
                 )
@@ -262,6 +268,7 @@ def _file_pre_tokenization_worker(
     file_path: str,
     chunk_start_pos: int,
     chunk_end_pos: int,
+    pre_tokenization_pattern: str,
     special_tokens: List[str] = ["<|endoftext|>"],
 ):
     # 1. Read file content
@@ -271,20 +278,8 @@ def _file_pre_tokenization_worker(
             "utf-8", errors="ignore"
         )
     # 2. Use the core pre-tokenization logic
-    return pre_tokenize_text(chunk_content, special_tokens)
-
-
-if __name__ == "__main__":
-    tokenizer_path = "cs336/owt_bpe_tokenizer"
-    input_path = "cs336/data/owt_train.txt"
-    output_path = "cs336/data/owt_train.tokens.uint16.npy"
-    special_tokens = ["<|endoftext|>"]
-    special_tokens = sorted(special_tokens, key=len, reverse=True)
-
-    fp = FileProcessor(file_path=input_path)
-    fp.tokenize_file(
-        tokenizer_path=tokenizer_path,
+    return pre_tokenize_text(
+        text=chunk_content,
+        pre_tokenization_pattern=pre_tokenization_pattern,
         special_tokens=special_tokens,
-        output_path=output_path,
-        num_workers=64,
     )

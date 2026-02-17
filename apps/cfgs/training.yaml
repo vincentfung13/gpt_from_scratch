@@ -1,0 +1,39 @@
+defaults:
+  - _self_
+  - override hydra/job_logging: custom
+
+task_name: npt_training
+device: cuda
+
+data:
+  train_file: /mnt/bn/suhe-v6/zijian/cs336/data/owt_train.tokens.uint16.npy 
+  val_file: /mnt/bn/suhe-v6/zijian/cs336/data/owt_val.tokens.uint16.npy
+  batch_size: 16 
+  seq_len: 2048
+   
+model:
+  d_model: 128 
+  d_ff: 512 
+  num_heads: 4
+  vocab_size: 32000
+  num_transformer_layers: 12 
+  rope_theta: 10000.0
+  context_len: ${data.seq_len}
+
+optim:
+  lr: 3e-4 
+  weight_decay: 0.1
+  betas: [0.9, 0.999]
+  eps: 1e-8
+  # cosine warmup
+  min_lr: 1e-5
+  warmup_iters: 2000
+  cosine_cyle_iters: 10000 
+
+trainer:
+  total_steps: 10000
+  save_dir: /mnt/bn/suhe-v6/zijian/cs336/checkpoints/test_run
+  save_freq: 1000
+  log_freq: 10
+  resume_checkpoint_path: null
+  resume: false
