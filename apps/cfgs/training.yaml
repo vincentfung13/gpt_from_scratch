@@ -7,17 +7,17 @@ run_name: pilot_run
 device: cuda
 
 data:
-  train_file: data/owt_train.tokens.uint16.npy 
-  val_file: data/owt_val.tokens.uint16.npy
-  batch_size: 16 
-  seq_len: 2048
+  train_file: data/tiny_stories_train.tokens.uint16.npy 
+  val_file: data/tiny_stories_val.tokens.uint16.npy
+  batch_size: 128 
+  seq_len: 256 
    
 model:
-  d_model: 128 
-  d_ff: 512 
-  num_heads: 4
-  vocab_size: 32000
-  num_transformer_layers: 12 
+  d_model: 512 
+  d_ff: 1344 
+  num_heads: 16
+  vocab_size: 10000
+  num_transformer_layers: 4
   rope_theta: 10000.0
   context_len: ${data.seq_len}
 
@@ -34,7 +34,9 @@ optim:
 trainer:
   total_steps: 10000
   save_dir: checkpoints/${run_name}
-  save_freq: 100
+  val_freq: 1000
+  val_steps: 500 
+  save_freq: 1000
   log_freq: 10
   resume_checkpoint_path: null
   resume: false

@@ -1,7 +1,7 @@
 import os
 import logging
+from tqdm import tqdm
 
-import hydra
 from omegaconf import DictConfig
 
 import torch
@@ -23,11 +23,11 @@ class NPTTrainer:
     def __init__(self, cfg: DictConfig):
         # Init dataloader
         LOGGER.info(
-            "Init dataloader from %s with seq_len=%d",
+            "Init train dataloader from %s with seq_len=%d",
             cfg.data.train_file,
             cfg.data.seq_len,
         )
-        self.data_loader = NumpyBatchLoader(
+        self.train_data_loader = NumpyBatchLoader(
             data_path=cfg.data.train_file,
             seq_len=cfg.data.seq_len,
             batch_size=cfg.data.batch_size,
@@ -80,7 +80,7 @@ class NPTTrainer:
         # Main training loop
         for step in range(self.cfg.trainer.total_steps):
             # Get batch
-            data, target = self.data_loader.get_batch(
+            data, target = self.train_data_loader.get_batch(
                 device=self.cfg.device,
             )
 
@@ -104,6 +104,9 @@ class NPTTrainer:
                     self.optim.param_groups[0]["lr"],
                 )
 
+            if step > 0 and step % self.cfg.trainer.val_freq == 0:
+                self._run_val()
+
             # Save checkpoint
             if step > 0 and step % self.cfg.trainer.save_freq == 0:
                 if not os.path.isdir(self.cfg.trainer.save_dir):
@@ -121,11 +124,32 @@ class NPTTrainer:
                 )
                 LOGGER.info(f"Checkpoint saved to {ckpt_path}")
 
+    def _run_val(self) -> float:
+        LOGGER.info(
+            "Starting running evalidation, init val dataloader from %s with seq_len=%d",
+            self.cfg.data.val_file,
+            self.cfg.data.seq_len,
+        )
+        val_data_loader = NumpyBatchLoader(
+            data_path=self.cfg.data.val_file,
+            seq_len=self.cfg.data.seq_len,
+            batch_size=self.cfg.data.batch_size,
+        )
 
-@hydra.main(version_base=None, config_path="cfgs", config_name="training")
-def launch_training(cfg: DictConfig) -> None:
-    print(cfg)
-
-
-if __name__ == "__main__":
-    launch_training()
+        # Evaluate
+        self.model.eval()
+        with torch.no_grad():
+            total_losses = 0.0
+            sample_count = 0
+            for _ in tqdm(list(range(self.cfg.trainer.val_steps))):
+                data, target = val_data_loader.get_batch(
+                    device=self.cfg.device,
+                )
+                logits = self.model(data)
+                loss = cross_entropy(logits, target)
+                total_losses += loss * data.size()[0]
+                sample_count += data.size()[0]
+            avg_val_loss = (total_losses / sample_count).item()
+            LOGGER.info("Validation Loss: %.4f", avg_val_loss)
+        self.model.train()
+        return avg_val_loss
