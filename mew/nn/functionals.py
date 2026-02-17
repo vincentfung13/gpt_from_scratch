@@ -9,7 +9,7 @@ def softmax(x: torch.Tensor, dim: int = -1) -> torch.Tensor:
 
     # Compute exp(x) - subtract max first for stability
     dim_max = x.max(dim=dim, keepdim=True).values
-    x -= dim_max
+    x = x - dim_max
     exp_x = x.exp()
 
     # Compute exp_sum
@@ -59,7 +59,7 @@ def scaled_dot_product(
         k,
         "batch ... seq_len_q d_k, batch ... seq_len_k d_k -> batch ... seq_len_q seq_len_k",
     )
-    qk_dot /= math.sqrt(q.size()[-1])
+    qk_dot = qk_dot / math.sqrt(q.size()[-1])
 
     # Before softmax, apply mask if specified
     if mask is not None:

@@ -23,7 +23,7 @@ class NPTTrainer:
     def __init__(self, cfg: DictConfig):
         # Init dataloader
         LOGGER.info(
-            "[NTP_TRAINER] Init dataloader from %s with seq_len=%d",
+            "Init dataloader from %s with seq_len=%d",
             cfg.data.train_file,
             cfg.data.seq_len,
         )
@@ -34,7 +34,7 @@ class NPTTrainer:
         )
 
         # Init model
-        LOGGER.info("[NTP_TRAINER] Init LM model and optimizer")
+        LOGGER.info("Init LM model and optimizer")
         self.model = TransformerLM(
             d_model=cfg.model.d_model,
             d_ff=cfg.model.d_ff,

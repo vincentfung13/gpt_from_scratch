@@ -29,8 +29,8 @@ class TransformerBlock(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # x -> (batch seq_len d_model)
-        x += self.attn(self.ln1(x))
-        x += self.ffn(self.ln2(x))
+        x = x + self.attn(self.ln1(x))
+        x = x + self.ffn(self.ln2(x))
         return x
 
 
