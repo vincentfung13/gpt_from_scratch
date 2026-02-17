@@ -106,14 +106,17 @@ class NPTTrainer:
 
             # Save checkpoint
             if step > 0 and step % self.cfg.trainer.save_freq == 0:
+                if not os.path.isdir(self.cfg.trainer.save_dir):
+                    os.makedirs(self.cfg.trainer.save_dir)
                 ckpt_path = os.path.join(
                     self.cfg.trainer.save_dir,
                     f"checkpoint_step_{step}.pt",
                 )
                 save_checkpoint(
-                    dst=ckpt_path,
                     model=self.model,
                     optimizer=self.optim,
+                    iteration=step,
+                    output_path=ckpt_path,
                     lr_scheduler=self.lr_scheduler,
                 )
                 LOGGER.info(f"Checkpoint saved to {ckpt_path}")

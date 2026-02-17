@@ -1,11 +1,12 @@
 import torch
+import os
 
 
 def save_checkpoint(
     model: torch.nn.Module,
     optimizer: torch.optim.Optimizer,
     iteration: int,
-    ouput_path: str,
+    output_path: str,
     lr_scheduler: torch.optim.lr_scheduler._LRScheduler = None,
 ):
     state_dicts = {
@@ -15,7 +16,7 @@ def save_checkpoint(
     }
     if lr_scheduler is not None:
         state_dicts["lr_scheduler"] = lr_scheduler.state_dict()
-    torch.save(state_dicts, ouput_path)
+    torch.save(state_dicts, output_path)
 
 
 def load_checkpoint(

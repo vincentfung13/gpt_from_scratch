@@ -3,11 +3,12 @@ defaults:
   - override hydra/job_logging: custom
 
 task_name: npt_training
+run_name: pilot_run
 device: cuda
 
 data:
-  train_file: /mnt/bn/suhe-v6/zijian/cs336/data/owt_train.tokens.uint16.npy 
-  val_file: /mnt/bn/suhe-v6/zijian/cs336/data/owt_val.tokens.uint16.npy
+  train_file: data/owt_train.tokens.uint16.npy 
+  val_file: data/owt_val.tokens.uint16.npy
   batch_size: 16 
   seq_len: 2048
    
@@ -32,8 +33,8 @@ optim:
 
 trainer:
   total_steps: 10000
-  save_dir: /mnt/bn/suhe-v6/zijian/cs336/checkpoints/test_run
-  save_freq: 1000
+  save_dir: checkpoints/${run_name}
+  save_freq: 100
   log_freq: 10
   resume_checkpoint_path: null
   resume: false
