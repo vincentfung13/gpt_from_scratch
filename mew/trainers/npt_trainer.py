@@ -6,7 +6,7 @@ from omegaconf import DictConfig
 
 import torch
 
-from mew.nn.lm import TransformerLM
+from mew.nn.utils import build_model
 from mew.nn.functionals import cross_entropy
 from mew.optimizers.adamw import AdamW
 from mew.optimizers.lr_scheduling import CosineAnnealingScheduler
@@ -35,15 +35,10 @@ class NPTTrainer:
 
         # Init model
         LOGGER.info("Init LM model and optimizer")
-        self.model = TransformerLM(
-            d_model=cfg.model.d_model,
-            d_ff=cfg.model.d_ff,
-            num_heads=cfg.model.num_heads,
-            vocab_size=cfg.model.vocab_size,
-            context_len=cfg.model.context_len,
-            num_transformer_layers=cfg.model.num_transformer_layers,
-            rope_theta=cfg.model.rope_theta,
-        ).cuda()
+        self.model = build_model(
+            cfg=cfg,
+            device=cfg.device,
+        )
 
         # Init optimizer and lr scheduler
         self.optim = AdamW(
@@ -109,10 +104,10 @@ class NPTTrainer:
 
             # Save checkpoint
             if step > 0 and step % self.cfg.trainer.save_freq == 0:
-                if not os.path.isdir(self.cfg.trainer.save_dir):
-                    os.makedirs(self.cfg.trainer.save_dir)
+                if not os.path.isdir(self.cfg.save_dir):
+                    os.makedirs(self.cfg.save_dir)
                 ckpt_path = os.path.join(
-                    self.cfg.trainer.save_dir,
+                    self.cfg.save_dir,
                     f"checkpoint_step_{step}.pt",
                 )
                 save_checkpoint(
