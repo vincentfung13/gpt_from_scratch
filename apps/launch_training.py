@@ -6,7 +6,7 @@ from omegaconf import DictConfig
 @hydra.main(version_base=None, config_path="cfgs", config_name="training")
 def main(cfg: DictConfig) -> None:
     # Copy tokenizer to save dir
-    os.system(f"cp -r {cfg.data.tokenizer_path} {cfg.trainer.save_dir}")
+    os.system(f"cp -r {cfg.data.tokenizer_path} {cfg.save_dir}/tokenizer")
 
     # Launch training job
     if cfg.task_name == "npt_training":

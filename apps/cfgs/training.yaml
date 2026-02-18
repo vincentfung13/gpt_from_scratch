@@ -5,11 +5,11 @@ defaults:
 task_name: npt_training
 run_name: pilot_run
 device: cuda
-save_dir: checkpoints/${run_name}
+save_dir: checkpoints/${run_name}/${now:%Y-%m-%d}/${now:%H-%M-%S}
 
 hydra:
   run:
-    dir: ${save_dir}/${now:%Y-%m-%d}/${now:%H-%M-%S}
+    dir: ${save_dir}
 
 data:
   train_file: data/tiny_stories_train.tokens.uint16.npy 
@@ -36,7 +36,7 @@ optim:
   eps: 1e-8
   # cosine warmup
   min_lr: 1e-5
-  warmup_iters: 2000
+  warmup_iters: 2000 
   cosine_cyle_iters: 10000 
 
 trainer:
