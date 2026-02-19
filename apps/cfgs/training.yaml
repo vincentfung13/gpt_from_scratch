@@ -29,21 +29,29 @@ model:
   rope_theta: 10000.0
   context_len: ${data.seq_len}
 
+# AdawmW params
 optim:
   lr: 3e-4 
-  weight_decay: 0.1
-  betas: [0.9, 0.999]
+  weight_decay: 0.01
+  betas: [0.9, 0.95]
   eps: 1e-8
   # cosine warmup
   min_lr: 1e-5
-  warmup_iters: 2000 
-  cosine_cyle_iters: 10000 
+  warmup_iters: 100 
+  cosine_cycle_iters: 5000 
+  # grad accumulatioan
+  grad_accumulation_steps: 2
+  grad_clip_norm: 1.0
 
 trainer:
-  total_steps: 10000
-  val_freq: 1000
+  total_steps: 10000 
+  val_freq: 250 
   val_steps: 500 
-  save_freq: 1000
+  save_freq: 2000
   log_freq: 10
   resume_checkpoint_path: null
   resume: false
+
+wandb:
+  enable: true
+  project: llm_from_scratch 

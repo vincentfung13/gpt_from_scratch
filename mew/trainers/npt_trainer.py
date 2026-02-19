@@ -10,6 +10,7 @@ from mew.nn.utils import build_model
 from mew.nn.functionals import cross_entropy
 from mew.optimizers.adamw import AdamW
 from mew.optimizers.lr_scheduling import CosineAnnealingScheduler
+from mew.optimizers.utils import clip_gradients
 from mew.data_loaders.numpy_batch_loader import NumpyBatchLoader
 from mew.trainers.utils import save_checkpoint, load_checkpoint
 
@@ -20,7 +21,7 @@ torch.autograd.set_detect_anomaly(True)
 
 
 class NPTTrainer:
-    def __init__(self, cfg: DictConfig):
+    def __init__(self, cfg: DictConfig, wandb=None):
         # Init dataloader
         LOGGER.info(
             "Init train dataloader from %s with seq_len=%d",
@@ -29,6 +30,16 @@ class NPTTrainer:
         )
         self.train_data_loader = NumpyBatchLoader(
             data_path=cfg.data.train_file,
+            seq_len=cfg.data.seq_len,
+            batch_size=cfg.data.batch_size,
+        )
+        LOGGER.info(
+            "Starting running evalidation, init val dataloader from %s with seq_len=%d",
+            cfg.data.val_file,
+            cfg.data.seq_len,
+        )
+        self.val_data_loader = NumpyBatchLoader(
+            data_path=cfg.data.val_file,
             seq_len=cfg.data.seq_len,
             batch_size=cfg.data.batch_size,
         )
@@ -53,8 +64,10 @@ class NPTTrainer:
             max_learning_rate=cfg.optim.lr,
             min_learning_rate=cfg.optim.min_lr,
             warmup_iters=cfg.optim.warmup_iters,
-            cosine_cycle_iters=cfg.optim.cosine_cyle_iters,
+            cosine_cycle_iters=cfg.optim.cosine_cycle_iters,
         )
+
+        self.wandb = wandb
 
         # Load checkpoint
         if cfg.trainer.resume:
@@ -82,25 +95,47 @@ class NPTTrainer:
             # Forward
             logits = self.model(data)
             loss = cross_entropy(logits, target)
+            scaled_loss = loss / self.cfg.optim.grad_accumulation_steps
+            scaled_loss.backward()
 
             # Backward
-            self.optim.zero_grad()
-            loss.backward()
-            self.optim.step()
-            self.lr_scheduler.step()
+            if step % self.cfg.optim.grad_accumulation_steps == 0:
+                if self.cfg.optim.grad_clip_norm > 0:
+                    clip_gradients(
+                        parameters=self.model.parameters(),
+                        max_l2_norm=self.cfg.optim.grad_clip_norm,
+                    )
+                self.optim.step()
+                self.lr_scheduler.step()
+                self.optim.zero_grad()
 
             # log progress
             if step % self.cfg.trainer.log_freq == 0:
+                # Run mini val
+                with torch.no_grad():
+                    val_data, val_target = self.val_data_loader.get_batch(
+                        device=self.cfg.device
+                    )
+                    val_logits = self.model(val_data)
+                    val_loss = cross_entropy(val_logits, val_target)
+
                 LOGGER.info(
-                    "Step [%d/%d], Loss: %.4f, LR: %.6f",
+                    "Step [%d/%d], Train Loss: %.4f, Val Loss: %.4f LR: %.6f",
                     step,
                     self.cfg.trainer.total_steps,
                     loss.item(),
+                    val_loss.item(),
                     self.optim.param_groups[0]["lr"],
                 )
-
-            if step % self.cfg.trainer.val_freq == 0:
-                self._run_val()
+                if self.wandb is not None:
+                    self.wandb.log(
+                        {
+                            "train/loss": loss.item(),
+                            "val/loss": val_loss.item(),
+                            "train/lr": self.optim.param_groups[0]["lr"],
+                        },
+                        step=step,
+                    )
 
             # Save checkpoint
             if step % self.cfg.trainer.save_freq == 0:
@@ -119,7 +154,7 @@ class NPTTrainer:
                 )
                 LOGGER.info(f"Checkpoint saved to {ckpt_path}")
 
-    def _run_val(self) -> float:
+    def _run_val(self, step: int) -> float:
         LOGGER.info(
             "Starting running evalidation, init val dataloader from %s with seq_len=%d",
             self.cfg.data.val_file,
@@ -146,5 +181,12 @@ class NPTTrainer:
                 sample_count += data.size()[0]
             avg_val_loss = (total_losses / sample_count).item()
             LOGGER.info("Validation Loss: %.4f", avg_val_loss)
+            if self.wandb is not None:
+                self.wandb.log(
+                    {
+                        "val/loss": avg_val_loss,
+                    },
+                    step=step,
+                )
         self.model.train()
         return avg_val_loss

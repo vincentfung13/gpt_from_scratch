@@ -28,6 +28,7 @@ class BaseConditionalGenerator:
         tokenizer_dir = os.path.join(os.path.dirname(model_path), "tokenizer")
         self.tokenizer = BPETokenizer.from_dir(tokenizer_dir)
 
+    @torch.no_grad()
     def generate(
         self,
         prompt: str,

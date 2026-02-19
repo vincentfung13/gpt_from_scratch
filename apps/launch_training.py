@@ -13,11 +13,20 @@ def main(cfg: DictConfig) -> None:
     # Save a copy of the config
     OmegaConf.save(config=cfg, f=f"{cfg.save_dir}/training_cfg.yaml")
 
+    # Init wandb for experiment tracking
+    wandb = None
+    if cfg.wandb.enable:
+        container = OmegaConf.to_container(cfg, resolve=True, throw_on_missing=True)
+
+        import wandb
+
+        wandb.init(project=cfg.wandb.project, name=cfg.run_name, config=container)
+
     # Launch training job
     if cfg.task_name == "npt_training":
         from mew.trainers.npt_trainer import NPTTrainer
 
-        trainer = NPTTrainer(cfg)
+        trainer = NPTTrainer(cfg, wandb)
         trainer.train()
     else:
         raise ValueError(f"Unknown task_name: {cfg.task_name}")
