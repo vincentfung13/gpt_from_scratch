@@ -1,12 +1,17 @@
-import hydra
 import os
+
+import hydra
 from omegaconf import DictConfig
+from omegaconf import OmegaConf
 
 
 @hydra.main(version_base=None, config_path="cfgs", config_name="training")
 def main(cfg: DictConfig) -> None:
     # Copy tokenizer to save dir
     os.system(f"cp -r {cfg.data.tokenizer_path} {cfg.save_dir}/tokenizer")
+
+    # Save a copy of the config
+    OmegaConf.save(config=cfg, f=f"{cfg.save_dir}/training_cfg.yaml")
 
     # Launch training job
     if cfg.task_name == "npt_training":

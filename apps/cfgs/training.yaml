@@ -5,7 +5,7 @@ defaults:
 task_name: npt_training
 run_name: pilot_run
 device: cuda
-save_dir: checkpoints/${run_name}/${now:%Y-%m-%d}/${now:%H-%M-%S}
+save_dir: checkpoints/${run_name}/${now:%Y-%m-%d-%H-%M-%S}
 
 hydra:
   run:

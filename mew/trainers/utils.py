@@ -21,13 +21,14 @@ def save_checkpoint(
 def load_checkpoint(
     src: str,
     model: torch.nn.Module,
-    optimizer: torch.optim.Optimizer,
+    optimizer: torch.optim.Optimizer = None,
     lr_scheduler: torch.optim.lr_scheduler._LRScheduler = None,
 ) -> int:
     state_dicts = torch.load(src)
-    model.load_state_dict(state_dicts["model"])
-    optimizer.load_state_dict(state_dicts["optimizer"])
+    model.load_state_dict(state_dicts["model"], strict=True)
+    if optimizer is not None:
+        optimizer.load_state_dict(state_dicts["optimizer"], strict=True)
     if lr_scheduler is not None:
-        lr_scheduler.load_state_dict(state_dicts["lr_scheduler"])
+        lr_scheduler.load_state_dict(state_dicts["lr_scheduler"], strict=True)
     iteration = state_dicts["iteration"]
     return iteration

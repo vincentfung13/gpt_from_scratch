@@ -73,7 +73,7 @@ class NPTTrainer:
 
     def train(self):
         # Main training loop
-        for step in range(self.cfg.trainer.total_steps):
+        for step in range(1, self.cfg.trainer.total_steps + 1):
             # Get batch
             data, target = self.train_data_loader.get_batch(
                 device=self.cfg.device,
@@ -90,7 +90,7 @@ class NPTTrainer:
             self.lr_scheduler.step()
 
             # log progress
-            if step > 0 and step % self.cfg.trainer.log_freq == 0:
+            if step % self.cfg.trainer.log_freq == 0:
                 LOGGER.info(
                     "Step [%d/%d], Loss: %.4f, LR: %.6f",
                     step,
@@ -99,11 +99,11 @@ class NPTTrainer:
                     self.optim.param_groups[0]["lr"],
                 )
 
-            if step > 0 and step % self.cfg.trainer.val_freq == 0:
+            if step % self.cfg.trainer.val_freq == 0:
                 self._run_val()
 
             # Save checkpoint
-            if step > 0 and step % self.cfg.trainer.save_freq == 0:
+            if step % self.cfg.trainer.save_freq == 0:
                 if not os.path.isdir(self.cfg.save_dir):
                     os.makedirs(self.cfg.save_dir)
                 ckpt_path = os.path.join(
