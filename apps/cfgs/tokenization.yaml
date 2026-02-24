@@ -6,7 +6,9 @@ task_name: train_bpe
 
 # Pre-tokenization pattern used for GPT-style BPE tokenizers.
 # This should be a raw string (regex) and matches words, numbers, contractions, punctuation, and whitespaces.
-pre_tokenization_pattern: r'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+'
+# (Using the pipe '|' preserves the regex exactly as a raw string in Python)
+pre_tokenization_pattern: |
+  '(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+
 special_tokens: ['<|endoftext|>']
 file_split_token: '<|endoftext|>'
 

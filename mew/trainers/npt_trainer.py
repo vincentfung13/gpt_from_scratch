@@ -1,6 +1,5 @@
 import os
 import logging
-from tqdm import tqdm
 
 from omegaconf import DictConfig
 

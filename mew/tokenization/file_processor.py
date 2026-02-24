@@ -44,6 +44,7 @@ class FileProcessor:
         pre_tokenization_pattern: str,
         chunk_split_special_token: str = "<|endoftext|>",
         special_tokens: List[str] = ["<|endoftext|>"],
+        preserve_special_tokens: bool = False,
     ) -> Counter[Tuple[bytes, ...], int]:
         if self.pre_token_counts is not None:
             return self.pre_token_counts
@@ -53,6 +54,7 @@ class FileProcessor:
             pre_tokenization_pattern=pre_tokenization_pattern,
             chunk_split_special_token=chunk_split_special_token,
             special_tokens=special_tokens,
+            preserve_special_tokens=preserve_special_tokens,
         ):
             self.pre_tokens_count[pre_token] = (
                 self.pre_tokens_count.get(pre_token, 0) + 1
@@ -65,6 +67,7 @@ class FileProcessor:
         num_workers=12,
         chunk_split_special_token: str = "<|endoftext|>",
         special_tokens: List[str] = ["<|endoftext|>"],
+        preserve_special_tokens: bool = False,
     ) -> Iterator[Tuple[bytes, ...]]:
         """
         Pre-tokenize the file.
@@ -99,6 +102,7 @@ class FileProcessor:
                         end,
                         pre_tokenization_pattern,
                         special_tokens,
+                        preserve_special_tokens,
                     )
                 next_to_submit = window_size
                 for i in range(len(chunk_pairs)):
@@ -115,6 +119,7 @@ class FileProcessor:
                             end,
                             pre_tokenization_pattern,
                             special_tokens,
+                            preserve_special_tokens,
                         )
                         next_to_submit += 1
                     del futures[i]
@@ -133,6 +138,7 @@ class FileProcessor:
             pre_tokenization_pattern=pre_tokenization_pattern,
             chunk_split_special_token=chunk_split_special_token,
             special_tokens=special_tokens,
+            preserve_special_tokens=True,
         )
         pre_tokens = list(pre_tokens_count.keys())
         LOGGER.info(f"[FILE_PROCESSOR] Found {len(pre_tokens)} unique pre-tokens.")
@@ -176,6 +182,7 @@ class FileProcessor:
                     pre_tokenization_pattern=pre_tokenization_pattern,
                     chunk_split_special_token=chunk_split_special_token,
                     special_tokens=special_tokens,
+                    preserve_special_tokens=True,
                 )
             ):
                 if pre_token not in pre_token_to_tokens:
@@ -270,6 +277,7 @@ def _file_pre_tokenization_worker(
     chunk_end_pos: int,
     pre_tokenization_pattern: str,
     special_tokens: List[str] = ["<|endoftext|>"],
+    preserve_special_tokens: bool = False,
 ):
     # 1. Read file content
     with open(file_path, "rb") as file:
@@ -282,4 +290,5 @@ def _file_pre_tokenization_worker(
         text=chunk_content,
         pre_tokenization_pattern=pre_tokenization_pattern,
         special_tokens=special_tokens,
+        preserve_special_tokens=preserve_special_tokens,
     )
