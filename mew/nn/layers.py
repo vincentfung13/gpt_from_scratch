@@ -1,4 +1,5 @@
 from einops import einsum, reduce
+import math
 
 import torch
 import torch.nn as nn
@@ -19,7 +20,8 @@ class Linear(nn.Module):
         self.weights = nn.Parameter(torch.empty(out_features, in_features))
 
         # Init weights
-        std = 2.0 / (in_features + out_features)
+        var = 2.0 / (in_features + out_features)
+        std = math.sqrt(var)
         init.trunc_normal_(self.weights, mean=0.0, std=std, a=-3 * std, b=3 * std)
 
         # Move to specified device
@@ -31,9 +33,8 @@ class Linear(nn.Module):
             self.weights = self.weights.to(dtype)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return einsum(
-            self.weights, x, "out_feats in_feats, ... in_feats -> ... out_feats"
-        )
+        weights = self.weights
+        return einsum(weights, x, "out_feats in_feats, ... in_feats -> ... out_feats")
 
 
 class Embedding(nn.Module):
@@ -48,7 +49,8 @@ class Embedding(nn.Module):
 
         # Create embedding lookup table and initialization
         self.weights = nn.Parameter(torch.empty(num_weights, embedding_dim))
-        init.trunc_normal_(self.weights, mean=0.0, std=1.0, a=-3.0, b=3.0)
+        std = math.sqrt(2.0 / embedding_dim)
+        init.trunc_normal_(self.weights, mean=0.0, std=std, a=-3.0 * std, b=3.0 * std)
 
         # Move to specified device
         if device is not None:
@@ -113,7 +115,8 @@ class SwiGLU(nn.Module):
         self.w3 = nn.Parameter(torch.empty(d_ff, d_model))
 
         # Init parameters
-        std = 2.0 / (d_model + d_ff)
+        var = 2.0 / (d_model + d_ff)
+        std = math.sqrt(var)
         init.trunc_normal_(self.w1, mean=0.0, std=std, a=-3 * std, b=3 * std)
         init.trunc_normal_(self.w2, mean=0.0, std=std, a=-3 * std, b=3 * std)
         init.trunc_normal_(self.w3, mean=0.0, std=std, a=-3 * std, b=3 * std)

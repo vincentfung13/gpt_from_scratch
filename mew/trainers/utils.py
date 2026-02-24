@@ -32,3 +32,19 @@ def load_checkpoint(
         lr_scheduler.load_state_dict(state_dicts["lr_scheduler"], strict=True)
     iteration = state_dicts["iteration"]
     return iteration
+
+
+def log_gradient_norm_and_weight_norm(wandb, model: torch.nn.Module, step: int):
+    if wandb is None:
+        return
+    metrics = {}
+    for name, p in model.named_parameters():
+        w = p.data
+        w_norm = (w.float().pow(2).sum()).sqrt().item()
+        if p.grad is not None:
+            g_norm = (p.grad.data.float().pow(2).sum()).sqrt().item()
+        else:
+            g_norm = 0.0
+        metrics[f"param/{name}/weight_norm"] = w_norm
+        metrics[f"param/{name}/grad_norm"] = g_norm
+    wandb.log(metrics, step=step)

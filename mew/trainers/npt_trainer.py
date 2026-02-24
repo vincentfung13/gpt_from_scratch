@@ -6,13 +6,18 @@ from omegaconf import DictConfig
 
 import torch
 
+from mew.tokenization.bpe import BPETokenizer
 from mew.nn.utils import build_model
 from mew.nn.functionals import cross_entropy
 from mew.optimizers.adamw import AdamW
 from mew.optimizers.lr_scheduling import CosineAnnealingScheduler
 from mew.optimizers.utils import clip_gradients
 from mew.data_loaders.numpy_batch_loader import NumpyBatchLoader
-from mew.trainers.utils import save_checkpoint, load_checkpoint
+from mew.trainers.utils import (
+    save_checkpoint,
+    load_checkpoint,
+    log_gradient_norm_and_weight_norm,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -32,6 +37,7 @@ class NPTTrainer:
             data_path=cfg.data.train_file,
             seq_len=cfg.data.seq_len,
             batch_size=cfg.data.batch_size,
+            is_training=True,
         )
         LOGGER.info(
             "Starting running evalidation, init val dataloader from %s with seq_len=%d",
@@ -42,6 +48,7 @@ class NPTTrainer:
             data_path=cfg.data.val_file,
             seq_len=cfg.data.seq_len,
             batch_size=cfg.data.batch_size,
+            is_training=False,
         )
 
         # Init model
@@ -66,6 +73,7 @@ class NPTTrainer:
             warmup_iters=cfg.optim.warmup_iters,
             cosine_cycle_iters=cfg.optim.cosine_cycle_iters,
         )
+        self.tokenizer = BPETokenizer.from_dir(cfg.data.tokenizer_path)
 
         self.wandb = wandb
 
@@ -97,6 +105,14 @@ class NPTTrainer:
             loss = cross_entropy(logits, target)
             scaled_loss = loss / self.cfg.optim.grad_accumulation_steps
             scaled_loss.backward()
+
+            # log weight norm and gradient norm
+            if step % self.cfg.trainer.log_freq == 0:
+                log_gradient_norm_and_weight_norm(
+                    wandb=self.wandb,
+                    model=self.model,
+                    step=step,
+                )
 
             # Backward
             if step % self.cfg.optim.grad_accumulation_steps == 0:
@@ -153,40 +169,3 @@ class NPTTrainer:
                     lr_scheduler=self.lr_scheduler,
                 )
                 LOGGER.info(f"Checkpoint saved to {ckpt_path}")
-
-    def _run_val(self, step: int) -> float:
-        LOGGER.info(
-            "Starting running evalidation, init val dataloader from %s with seq_len=%d",
-            self.cfg.data.val_file,
-            self.cfg.data.seq_len,
-        )
-        val_data_loader = NumpyBatchLoader(
-            data_path=self.cfg.data.val_file,
-            seq_len=self.cfg.data.seq_len,
-            batch_size=self.cfg.data.batch_size,
-        )
-
-        # Evaluate
-        self.model.eval()
-        with torch.no_grad():
-            total_losses = 0.0
-            sample_count = 0
-            for _ in tqdm(list(range(self.cfg.trainer.val_steps))):
-                data, target = val_data_loader.get_batch(
-                    device=self.cfg.device,
-                )
-                logits = self.model(data)
-                loss = cross_entropy(logits, target)
-                total_losses += loss * data.size()[0]
-                sample_count += data.size()[0]
-            avg_val_loss = (total_losses / sample_count).item()
-            LOGGER.info("Validation Loss: %.4f", avg_val_loss)
-            if self.wandb is not None:
-                self.wandb.log(
-                    {
-                        "val/loss": avg_val_loss,
-                    },
-                    step=step,
-                )
-        self.model.train()
-        return avg_val_loss
