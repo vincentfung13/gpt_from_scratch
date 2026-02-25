@@ -1,17 +1,22 @@
 import os
 import logging
 
-import hydra
 from omegaconf import DictConfig
 
 import torch
 
-from mew.nn.lm import TransformerLM
+from mew.tokenization.bpe import BPETokenizer
+from mew.nn.utils import build_model
 from mew.nn.functionals import cross_entropy
 from mew.optimizers.adamw import AdamW
 from mew.optimizers.lr_scheduling import CosineAnnealingScheduler
+from mew.optimizers.utils import clip_gradients
 from mew.data_loaders.numpy_batch_loader import NumpyBatchLoader
-from mew.trainers.utils import save_checkpoint, load_checkpoint
+from mew.trainers.utils import (
+    save_checkpoint,
+    load_checkpoint,
+    log_gradient_norm_and_weight_norm,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -20,30 +25,37 @@ torch.autograd.set_detect_anomaly(True)
 
 
 class NPTTrainer:
-    def __init__(self, cfg: DictConfig):
+    def __init__(self, cfg: DictConfig, wandb=None):
         # Init dataloader
         LOGGER.info(
-            "Init dataloader from %s with seq_len=%d",
+            "Init train dataloader from %s with seq_len=%d",
             cfg.data.train_file,
             cfg.data.seq_len,
         )
-        self.data_loader = NumpyBatchLoader(
+        self.train_data_loader = NumpyBatchLoader(
             data_path=cfg.data.train_file,
             seq_len=cfg.data.seq_len,
             batch_size=cfg.data.batch_size,
+            is_training=True,
+        )
+        LOGGER.info(
+            "Starting running evalidation, init val dataloader from %s with seq_len=%d",
+            cfg.data.val_file,
+            cfg.data.seq_len,
+        )
+        self.val_data_loader = NumpyBatchLoader(
+            data_path=cfg.data.val_file,
+            seq_len=cfg.data.seq_len,
+            batch_size=cfg.data.batch_size,
+            is_training=False,
         )
 
         # Init model
         LOGGER.info("Init LM model and optimizer")
-        self.model = TransformerLM(
-            d_model=cfg.model.d_model,
-            d_ff=cfg.model.d_ff,
-            num_heads=cfg.model.num_heads,
-            vocab_size=cfg.model.vocab_size,
-            context_len=cfg.model.context_len,
-            num_transformer_layers=cfg.model.num_transformer_layers,
-            rope_theta=cfg.model.rope_theta,
-        ).cuda()
+        self.model = build_model(
+            cfg=cfg,
+            device=cfg.device,
+        )
 
         # Init optimizer and lr scheduler
         self.optim = AdamW(
@@ -58,8 +70,11 @@ class NPTTrainer:
             max_learning_rate=cfg.optim.lr,
             min_learning_rate=cfg.optim.min_lr,
             warmup_iters=cfg.optim.warmup_iters,
-            cosine_cycle_iters=cfg.optim.cosine_cyle_iters,
+            cosine_cycle_iters=cfg.optim.cosine_cycle_iters,
         )
+        self.tokenizer = BPETokenizer.from_dir(cfg.data.tokenizer_path)
+
+        self.wandb = wandb
 
         # Load checkpoint
         if cfg.trainer.resume:
@@ -78,51 +93,78 @@ class NPTTrainer:
 
     def train(self):
         # Main training loop
-        for step in range(self.cfg.trainer.total_steps):
+        for step in range(1, self.cfg.trainer.total_steps + 1):
             # Get batch
-            data, target = self.data_loader.get_batch(
+            data, target = self.train_data_loader.get_batch(
                 device=self.cfg.device,
             )
 
             # Forward
             logits = self.model(data)
             loss = cross_entropy(logits, target)
+            scaled_loss = loss / self.cfg.optim.grad_accumulation_steps
+            scaled_loss.backward()
+
+            # log weight norm and gradient norm
+            if step % self.cfg.trainer.log_freq == 0:
+                log_gradient_norm_and_weight_norm(
+                    wandb=self.wandb,
+                    model=self.model,
+                    step=step,
+                )
 
             # Backward
-            self.optim.zero_grad()
-            loss.backward()
-            self.optim.step()
-            self.lr_scheduler.step()
+            if step % self.cfg.optim.grad_accumulation_steps == 0:
+                if self.cfg.optim.grad_clip_norm > 0:
+                    clip_gradients(
+                        parameters=self.model.parameters(),
+                        max_l2_norm=self.cfg.optim.grad_clip_norm,
+                    )
+                self.optim.step()
+                self.lr_scheduler.step()
+                self.optim.zero_grad()
 
             # log progress
-            if step > 0 and step % self.cfg.trainer.log_freq == 0:
+            if step % self.cfg.trainer.log_freq == 0:
+                # Run mini val
+                with torch.no_grad():
+                    val_data, val_target = self.val_data_loader.get_batch(
+                        device=self.cfg.device
+                    )
+                    val_logits = self.model(val_data)
+                    val_loss = cross_entropy(val_logits, val_target)
+
                 LOGGER.info(
-                    "Step [%d/%d], Loss: %.4f, LR: %.6f",
+                    "Step [%d/%d], Train Loss: %.4f, Val Loss: %.4f LR: %.6f",
                     step,
                     self.cfg.trainer.total_steps,
                     loss.item(),
+                    val_loss.item(),
                     self.optim.param_groups[0]["lr"],
                 )
+                if self.wandb is not None:
+                    self.wandb.log(
+                        {
+                            "train/loss": loss.item(),
+                            "val/loss": val_loss.item(),
+                            "train/lr": self.optim.param_groups[0]["lr"],
+                        },
+                        step=step,
+                    )
 
             # Save checkpoint
-            if step > 0 and step % self.cfg.trainer.save_freq == 0:
+            if step % self.cfg.trainer.save_freq == 0:
+                if not os.path.isdir(self.cfg.save_dir):
+                    os.makedirs(self.cfg.save_dir)
                 ckpt_path = os.path.join(
-                    self.cfg.trainer.save_dir,
+                    self.cfg.save_dir,
                     f"checkpoint_step_{step}.pt",
                 )
                 save_checkpoint(
-                    dst=ckpt_path,
                     model=self.model,
                     optimizer=self.optim,
+                    iteration=step,
+                    output_path=ckpt_path,
                     lr_scheduler=self.lr_scheduler,
                 )
                 LOGGER.info(f"Checkpoint saved to {ckpt_path}")
-
-
-@hydra.main(version_base=None, config_path="cfgs", config_name="training")
-def launch_training(cfg: DictConfig) -> None:
-    print(cfg)
-
-
-if __name__ == "__main__":
-    launch_training()

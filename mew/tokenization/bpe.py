@@ -167,6 +167,7 @@ class BPETokenizer:
             chunk_split_special_token=file_split_token,
             pre_tokenization_pattern=pre_tokenization_pattern,
             special_tokens=special_tokens,
+            preserve_special_tokens=False,
         )
         LOGGER.info(
             f"Pre-tokenization complete. Found {len(pre_token_counts)} unique pre-tokens"

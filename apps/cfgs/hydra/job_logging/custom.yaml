@@ -11,9 +11,8 @@ handlers:
   file:
     class: logging.FileHandler
     formatter: simple
-    # Hydra automatically creates a .log file named after your job in the output dir
-    filename: ${hydra:job.name}.log
+    filename: ${hydra:runtime.output_dir}/${hydra:job.name}.log
 root:
   handlers: [console, file]
-# This is key to fixing duplicates: it stops other loggers from interfering
+# stops other loggers from interfering
 disable_existing_loggers: false

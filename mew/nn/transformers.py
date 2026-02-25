@@ -1,4 +1,5 @@
 from einops import einsum, rearrange
+import math
 
 import torch
 import torch.nn as nn
@@ -60,7 +61,7 @@ class CausalMultiHeadSelfAttn(nn.Module):
         self.v_proj = nn.Parameter(torch.empty(d_model, d_model))
         self.output_proj = nn.Parameter(torch.empty(d_model, d_model))
 
-        std = 1.0 / d_model
+        std = math.sqrt(1.0 / d_model)
         init.trunc_normal_(self.q_proj, mean=0.0, std=std, a=-3 * std, b=3 * std)
         init.trunc_normal_(self.k_proj, mean=0.0, std=std, a=-3 * std, b=3 * std)
         init.trunc_normal_(self.v_proj, mean=0.0, std=std, a=-3 * std, b=3 * std)

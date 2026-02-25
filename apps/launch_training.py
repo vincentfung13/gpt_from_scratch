@@ -1,20 +1,35 @@
+import os
+
 import hydra
 from omegaconf import DictConfig
-
-from mew.trainers.npt_trainer import NPTTrainer
-
-
-def _npt_training(cfg: DictConfig) -> None:
-    trainer = NPTTrainer(cfg)
-    trainer.train()
+from omegaconf import OmegaConf
 
 
 @hydra.main(version_base=None, config_path="cfgs", config_name="training")
 def main(cfg: DictConfig) -> None:
+    # Copy tokenizer to save dir
+    os.system(f"cp -r {cfg.data.tokenizer_path} {cfg.save_dir}/tokenizer")
+
+    # Save a copy of the config
+    OmegaConf.save(config=cfg, f=f"{cfg.save_dir}/training_cfg.yaml")
+
+    # Init wandb for experiment tracking
+    wandb = None
+    if cfg.wandb.enable:
+        container = OmegaConf.to_container(cfg, resolve=True, throw_on_missing=True)
+
+        import wandb
+
+        wandb.init(project=cfg.wandb.project, name=cfg.run_name, config=container)
+
+    # Launch training job
     if cfg.task_name == "npt_training":
-        _npt_training(cfg)
+        from mew.trainers.npt_trainer import NPTTrainer
+
+        trainer = NPTTrainer(cfg, wandb)
+        trainer.train()
     else:
-        raise ValueError(f"Unknown mode: {cfg.mode}")
+        raise ValueError(f"Unknown task_name: {cfg.task_name}")
 
 
 if __name__ == "__main__":

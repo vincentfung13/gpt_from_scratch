@@ -67,6 +67,7 @@ def pre_tokenize_text(
     text: str,
     pre_tokenization_pattern: str,
     special_tokens: List[str] = ["<|endoftext|>"],
+    preserve_special_tokens: bool = False,
 ) -> List[Tuple[bytes, ...]]:
     """
     Core pre-tokenization logic that works on a text string.
@@ -75,6 +76,7 @@ def pre_tokenize_text(
         text: Input text string to pre-tokenize.
         pre_tokenization_pattern: regex pattern used to pre-tokenization the input text.
         special_tokens: List of special token strings to split on.
+        preserve_special_tokens: Whether to keep special tokens as separate pre-tokens.
 
     Returns:
         List of pre tokens.
@@ -84,11 +86,22 @@ def pre_tokenize_text(
     # Sort special tokens by length (longest first) to handle overlapping tokens correctly
     sorted_special_tokens = sorted(special_tokens, key=len, reverse=True)
     pattern = r"|".join(re.escape(token) for token in sorted_special_tokens)
-    for sub_chunk in re.split(pattern, text):
-        # Run pre-tokenization and count each pre-token
-        for match in re.finditer(pre_tokenization_pattern, sub_chunk):
-            # Encode word to bytes, then split into individual bytes (byte-level BPE)
-            word_bytes = match.group().encode("utf-8")
-            pre_token_bytes_tuple = tuple(bytes([i]) for i in word_bytes)
-            pre_tokens.append(pre_token_bytes_tuple)
+    if preserve_special_tokens and sorted_special_tokens:
+        split_re = re.compile(f"({pattern})")
+        for sub_chunk in split_re.split(text):
+            if not sub_chunk:
+                continue
+            if sub_chunk in sorted_special_tokens:
+                pre_tokens.append((sub_chunk.encode("utf-8"),))
+                continue
+            for match in re.finditer(pre_tokenization_pattern, sub_chunk):
+                word_bytes = match.group().encode("utf-8")
+                pre_token_bytes_tuple = tuple(bytes([i]) for i in word_bytes)
+                pre_tokens.append(pre_token_bytes_tuple)
+    else:
+        for sub_chunk in re.split(pattern, text):
+            for match in re.finditer(pre_tokenization_pattern, sub_chunk):
+                word_bytes = match.group().encode("utf-8")
+                pre_token_bytes_tuple = tuple(bytes([i]) for i in word_bytes)
+                pre_tokens.append(pre_token_bytes_tuple)
     return pre_tokens
