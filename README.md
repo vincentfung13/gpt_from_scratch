@@ -1,5 +1,7 @@
 # mew 
 
+<img src="resources/logo.jpg" width="59%" alt="mew logo">
+
 A custom implementation of a GPT-like language model developed entirely from scratch. This project provides the fundamental building blocks for training and running inference on an autoregressive neural probabilistic language model.
 
 ## Features
