@@ -51,13 +51,19 @@ class BPETokenizer:
             token: token_ind for token_ind, token in self.vocab.items()
         }
         self.merges: List[Tuple[bytes, bytes]] = merges if merges is not None else []
+        # Rank table for merge pairs (lower rank = higher priority).
+        self.bpe_ranks: Dict[Tuple[bytes, bytes], int] = {
+            pair: i for i, pair in enumerate(self.merges)
+        }
+        # Cache: pre-token bytes -> final BPE pieces.
+        self._bpe_cache: Dict[bytes, Tuple[bytes, ...]] = {}
         self.special_tokens: List[str] = (
             special_tokens if special_tokens is not None else []
         )
         self.pre_tokenization_pattern = (
             pre_tokenization_pattern
             if pre_tokenization_pattern is not None
-            else r"(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"
+            else r"'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"
         )
 
         # Add special token into vocab
@@ -349,6 +355,8 @@ class BPETokenizer:
         self.get_token_ind: Dict[bytes, int] = {
             token: token_ind for token_ind, token in self.vocab.items()
         }
+        self.bpe_ranks = {pair: i for i, pair in enumerate(self.merges)}
+        self._bpe_cache.clear()
         self.special_tokens = special_tokens
         self.pre_tokenization_pattern = pre_tokenization_pattern
 
@@ -377,13 +385,19 @@ class BPETokenizer:
         sorted_special_tokens = sorted(self.special_tokens, key=len, reverse=True)
         tokens = []
 
-        # If there are no special tokens, process the whole text directly
+        # If there are no special tokens, process the whole text directly.
+        # `encode_string` does not replay `self.merges` once from top to bottom.
+        # Instead, it repeatedly picks the currently mergeable adjacent pair with the
+        # lowest rank (earliest learned merge) until no ranked pair remains.
+        # This matches GPT-2-style BPE, where a newly-created token can expose another
+        # higher-priority merge on the next iteration.
         if not sorted_special_tokens:
             return encode_string(
                 input_string=text,
                 get_token_ind=self.get_token_ind,
-                merges=self.merges,
+                bpe_ranks=self.bpe_ranks,
                 pre_tokenization_pattern=self.pre_tokenization_pattern,
+                cache=self._bpe_cache,
             )
 
         # If there are special tokens, split by them first
@@ -400,12 +414,16 @@ class BPETokenizer:
                 tokens.append(self.get_token_ind[sub_chunk.encode("utf-8")])
                 continue
 
-            # Pre-tokenize and encode the string
+            # Pre-tokenize and encode the string using the same iterative,
+            # rank-based merge procedure described above. The cache stores the
+            # final BPE split for repeated pre-tokens, but does not change the
+            # merge order semantics.
             tokens += encode_string(
                 input_string=sub_chunk,
                 get_token_ind=self.get_token_ind,
-                merges=self.merges,
+                bpe_ranks=self.bpe_ranks,
                 pre_tokenization_pattern=self.pre_tokenization_pattern,
+                cache=self._bpe_cache,
             )
 
         return tokens

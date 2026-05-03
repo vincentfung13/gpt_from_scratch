@@ -1,5 +1,6 @@
+import math
 import regex as re
-from typing import List, Dict, Tuple
+from typing import Dict, List, Tuple
 
 
 def find_most_freq_pair_to_merge(
@@ -32,34 +33,62 @@ def find_most_freq_pair_to_merge(
 def encode_string(
     input_string: str,
     get_token_ind: Dict[bytes, int],
-    merges: List[tuple[bytes, bytes]],
+    bpe_ranks: Dict[Tuple[bytes, bytes], int],
     pre_tokenization_pattern: str,
+    cache: Dict[bytes, Tuple[bytes, ...]] | None = None,
 ):
-    # Pre-tokenize, apply merges, then find indices
-    tokens = []
-    for match in re.finditer(pre_tokenization_pattern, input_string):
-        # Encode word to bytes, then split into individual bytes (byte-level BPE)
-        word_bytes = match.group().encode("utf-8")
-        token_list = [bytes([i]) for i in word_bytes]
+    """Encode a string into token IDs using GPT-2-style byte-level BPE.
 
-        # Apply merges in-order
-        for pair_to_merge in merges:
-            ind = 0
-            new_token_list = []
-            while ind < len(token_list):
-                if (
-                    ind < len(token_list) - 1
-                    and (token_list[ind], token_list[ind + 1]) == pair_to_merge
-                ):
-                    new_token_list.append(pair_to_merge[0] + pair_to_merge[1])
-                    ind += 2
+    This implements the standard BPE procedure:
+    - pre-tokenize with the provided regex
+    - for each pre-token (bytes), repeatedly merge the *lowest-rank* adjacent pair
+      until no mergeable pairs remain
+    """
+
+    def _bpe(token_bytes: bytes) -> Tuple[bytes, ...]:
+        if cache is not None:
+            cached = cache.get(token_bytes)
+            if cached is not None:
+                return cached
+
+        # Start from individual bytes.
+        word: List[bytes] = [bytes([b]) for b in token_bytes]
+
+        # Repeatedly merge the lowest-rank pair present.
+        while len(word) >= 2:
+            best_pair: Tuple[bytes, bytes] | None = None
+            best_rank = math.inf
+            for a, b in zip(word, word[1:]):
+                rank = bpe_ranks.get((a, b))
+                if rank is not None and rank < best_rank:
+                    best_rank = rank
+                    best_pair = (a, b)
+
+            if best_pair is None:
+                break
+
+            a, b = best_pair
+            merged: List[bytes] = []
+            i = 0
+            while i < len(word):
+                if i < len(word) - 1 and word[i] == a and word[i + 1] == b:
+                    merged.append(a + b)
+                    i += 2
                 else:
-                    new_token_list.append(token_list[ind])
-                    ind += 1
-            token_list = new_token_list
+                    merged.append(word[i])
+                    i += 1
+            word = merged
 
-        # Add to token list
-        tokens += [get_token_ind[token] for token in token_list]
+        out = tuple(word)
+        if cache is not None:
+            cache[token_bytes] = out
+        return out
+
+    tokens: List[int] = []
+    for match in re.finditer(pre_tokenization_pattern, input_string):
+        token_bytes = match.group().encode("utf-8")
+        token_pieces = _bpe(token_bytes)
+        tokens.extend(get_token_ind[p] for p in token_pieces)
     return tokens
 
 
