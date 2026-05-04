@@ -17,7 +17,8 @@ dependencies = [
     "torch~=2.6.0; sys_platform != 'darwin' or platform_machine != 'x86_64'",
     "torch~=2.2.2; sys_platform == 'darwin' and platform_machine == 'x86_64'", # Intel Macs
     "tqdm>=4.67.1",
-    "byted-wandb",
+    "wandb",
+    "weave", 
     "protobuf<5.0.0",
     "ty>=0.0.1a16",
     "hydra-core",
