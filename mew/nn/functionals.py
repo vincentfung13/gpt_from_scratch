@@ -84,12 +84,8 @@ def scaled_dot_product(
         q_tgt_shape = "batch ... num_groups num_grouped_queries seq_len_q d_head"
         q = rearrange(q, f"{q_src_shape} -> {q_tgt_shape}", num_groups=num_kv_groups)
 
-        # k -> (batch ... num_groups seq_len_k d_head)
-        # v -> (batch ... num_groups seq_len_k d_head)
-        kv_src_shape = "batch ... (num_groups 1) seq_len_k d_head"
-        kv_tgt_shape = "batch ... num_groups 1 seq_len_k d_head"
-        k = rearrange(k, f"{kv_src_shape} -> {kv_tgt_shape}", num_groups=num_kv_groups)
-        v = rearrange(v, f"{kv_src_shape} -> {kv_tgt_shape}", num_groups=num_kv_groups)
+        # k * v -> (batch ... num_groups seq_len_k d_head)
+        kv_tgt_shape = "batch ... num_groups seq_len_k d_head"
 
         # Compute qk dot
         qk_dot_tgt_shape = (
@@ -106,9 +102,13 @@ def scaled_dot_product(
         attn_weights = softmax(qk_dot, dim=-1)  # (batch ... seq_len_q seq_len_k)
 
         # Reduce with V
+        agg_v_tgt_shape = "batch ... num_groups num_grouped_queries seq_len_q d_head"
         output_tgt_shape = "batch ... (num_groups num_grouped_queries) seq_len_q d_head"
         aggregated_v = einsum(
-            attn_weights, v, f"{qk_dot_tgt_shape}, {kv_tgt_shape} -> {output_tgt_shape}"
+            attn_weights, v, f"{qk_dot_tgt_shape}, {kv_tgt_shape} -> {agg_v_tgt_shape}"
+        )
+        aggregated_v = rearrange(
+            aggregated_v, f"{agg_v_tgt_shape} -> {output_tgt_shape}"
         )
 
     return aggregated_v
