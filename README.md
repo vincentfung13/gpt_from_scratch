@@ -51,12 +51,44 @@ You can run the application scripts using `uv run`.
 
 **Tokenization:**
 ```bash
-uv run apps/tokenization.py
+# 1. Train a BPE tokenizer
+uv run apps/tokenization.py \
+    task_name=train_bpe \
+    training.vocab_size=10000 \
+    training.input_path='./data/TinyStoriesV2-GPT4-train.txt' \
+    training.save_dir='./data/tinystories_bpe_tokenizer'
+
+# 2. Tokenize the training and vaidation file
+uv run apps/tokenization.py \
+    task_name=tokenize_file \
+    file_tokenization.input_path='./data/TinyStoriesV2-GPT4-train.txt' \
+    file_tokenization.tokenizer_path='./data/tinystories_bpe_tokenizer' \
+    file_tokenization.save_path='./data/tiny_stories_train.tokens.uint16.npy' \
+    file_tokenization.num_workers=12
+
+uv run apps/tokenization.py \
+    task_name=tokenize_file \
+    file_tokenization.input_path='./data/TinyStoriesV2-GPT4-valid.txt' \
+    file_tokenization.tokenizer_path='./data/tinystories_bpe_tokenizer' \
+    file_tokenization.save_path='./data/tiny_stories_val.tokens.uint16.npy' \
+    file_tokenization.num_workers=12
 ```
 
 **Training:**
 ```bash
-uv run apps/launch_training.py
+EXP_PREFIX="tinystories_ablation_$(date +%Y%m%d_%H%M%S)"
+uv run apps/launch_training.py \
+    run_name="${EXP_PREFIX}_mha" \
+    trainer.total_steps=10000 \
+    data.train_file='./data/tiny_stories_train.tokens.uint16.npy' \
+    data.val_file='./data/tiny_stories_val.tokens.uint16.npy' \
+    data.batch_size=128 \
+    data.seq_len=256 \
+    data.tokenizer_path='./data/tinystories_bpe_tokenizer' \
+    model.d_model=512 \
+    model.d_ff=1344 \
+    model.num_heads=16 \
+    model.num_groups=null
 ```
 *Note: The launch scripts use Hydra, so you can override configurations via the CLI (e.g., `uv run apps/launch_training.py wandb.enable=True`).*
 

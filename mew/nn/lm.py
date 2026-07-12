@@ -15,6 +15,8 @@ class TransformerLM(nn.Module):
         context_len: int,
         num_transformer_layers: int,
         rope_theta: float,
+        # GQA configuration
+        num_groups: int = None,
     ):
         super().__init__()
 
@@ -31,6 +33,7 @@ class TransformerLM(nn.Module):
                     d_ff=d_ff,
                     theta=rope_theta,
                     max_seq_len=context_len,
+                    num_groups=num_groups,
                 )
             )
         self.layers = nn.Sequential(*layers)

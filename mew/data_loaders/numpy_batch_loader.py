@@ -40,17 +40,8 @@ class NumpyBatchLoader:
         )
 
     def get_batch(self, device: str) -> Tuple[torch.Tensor, torch.Tensor]:
-        if self.is_training:
-            # Sampling with replacement during training
-            indices = np.random.randint(0, self.num_samples, size=self.batch_size)
-        else:
-            # Sampling without replacement during validation
-            if self.current_batch_idx >= self.num_batches:
-                LOGGER.info("Epoch complete. Re-shuffling...")
-                self._shuffle_indices()
-            start_idx = self.batch_indices[self.current_batch_idx] * self.batch_size
-            self.current_batch_idx += 1
-            indices = np.arange(start_idx, start_idx + self.batch_size)
+        # Sampling with replacement during training & training-time validation
+        indices = np.random.randint(0, self.num_samples, size=self.batch_size)
 
         # Efficient batch construction
         x_list, y_list = [], []

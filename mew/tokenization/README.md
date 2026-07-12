@@ -93,6 +93,22 @@ Here, **A** is the number of pre-tokens that contain the merged pair; typically 
 - **`frequency_heap.py`**: Heap structure for max-frequency pair selection with lazy deletion (optional alternative to `Counter.most_common`).
 - **`cfg.py`**: Pre-tokenization regex and related config.
 
+### Subtle Encoding Detail: Apply Merges by Rank, Iteratively
+
+At inference time, `encode_string` does **not** simply loop over the learned `merges` list once and apply each rule if it happens to match the current token sequence.
+
+Instead, for each pre-token it follows the standard GPT-2 byte-level BPE procedure:
+
+1. Start from individual bytes.
+2. Look at the **currently adjacent** pairs in the token.
+3. Among the pairs that exist in the learned merge table, pick the one with the **lowest rank** (the earliest merge learned during training).
+4. Apply that merge across the token.
+5. Repeat until no adjacent pair is mergeable.
+
+This subtlety matters because one merge can create a new adjacent pair that should be merged next, possibly with a **higher priority** than other pairs that were already present. A single pass over `merges` can therefore produce a different tokenization from the canonical BPE algorithm.
+
+The implementation keeps a `bpe_ranks` table for this priority lookup and an optional cache from pre-token bytes to their final BPE pieces for faster repeated encoding.
+
 For deeper bottleneck analysis and possible further improvements, see `BOTTLENECK_ANALYSIS.md`.
 
 ---
