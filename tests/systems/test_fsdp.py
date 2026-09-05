@@ -99,7 +99,9 @@ def _apply_mixed_precision_hooks(model, compute_dtype):
 
             return hook
 
-        mod.weight.register_post_accumulate_grad_hook(make_grad_hook(mod, isinstance(mod, Linear)))
+        mod.weight.register_post_accumulate_grad_hook(
+            make_grad_hook(mod, isinstance(mod, Linear))
+        )
 
 
 @pytest.mark.filterwarnings("error")
@@ -170,13 +172,13 @@ def _test_fsdp_correctness(rank: int, world_size: int, compute_dtype):
         for name, np_param in non_parallel_model.named_parameters():
             fsdp_full = full_params[name]
             if compute_dtype is None:
-                assert torch.allclose(np_param.data, fsdp_full, atol=1e-6, rtol=1e-4), (
-                    f"Step {step}: Parameter {name} mismatch. Max diff: {(np_param.data - fsdp_full).abs().max().item()}"
-                )
+                assert torch.allclose(
+                    np_param.data, fsdp_full, atol=1e-6, rtol=1e-4
+                ), f"Step {step}: Parameter {name} mismatch. Max diff: {(np_param.data - fsdp_full).abs().max().item()}"
             else:
-                assert torch.allclose(np_param.data, fsdp_full, atol=1e-4, rtol=1e-4), (
-                    f"Step {step}: Parameter {name} mismatch. Max diff: {(np_param.data - fsdp_full).abs().max().item()}"
-                )
+                assert torch.allclose(
+                    np_param.data, fsdp_full, atol=1e-4, rtol=1e-4
+                ), f"Step {step}: Parameter {name} mismatch. Max diff: {(np_param.data - fsdp_full).abs().max().item()}"
 
         # Shuffle data
         torch.manual_seed(42 + step)
@@ -228,22 +230,30 @@ def _test_fsdp_gradient_sync(rank: int, world_size: int, compute_dtype):
     for name, param in fsdp_model.module.named_parameters():
         if param.requires_grad:
             assert param.grad is not None, f"Gradient is None for {name}"
-            assert param.grad.shape == param.data.shape, f"Gradient shape {param.grad.shape} != data shape {param.data.shape} for {name}"
-            assert param.grad.dtype == param.data.dtype, f"Gradient dtype {param.grad.dtype} != data dtype {param.data.dtype} for {name}"
+            assert (
+                param.grad.shape == param.data.shape
+            ), f"Gradient shape {param.grad.shape} != data shape {param.data.shape} for {name}"
+            assert (
+                param.grad.dtype == param.data.dtype
+            ), f"Gradient dtype {param.grad.dtype} != data dtype {param.data.dtype} for {name}"
 
     # Replicated (non-FSDP) parameter gradients must be identical across ranks
     for name, param in fsdp_model.module.named_parameters():
         if not param.requires_grad:
             continue
         parts = name.rsplit(".", 1)
-        mod = dict(fsdp_model.module.named_modules())[parts[0]] if len(parts) == 2 else fsdp_model.module
+        mod = (
+            dict(fsdp_model.module.named_modules())[parts[0]]
+            if len(parts) == 2
+            else fsdp_model.module
+        )
         if isinstance(mod, (Linear, Embedding)):
             continue
         gathered = [torch.zeros_like(param.grad) for _ in range(world_size)]
         dist.all_gather(gathered, param.grad)
         for r in range(1, world_size):
-            assert torch.allclose(gathered[0], gathered[r], atol=1e-4, rtol=1e-4), (
-                f"Replicated gradient for {name} differs between rank 0 and rank {r}. Max diff: {(gathered[0] - gathered[r]).abs().max().item()}"
-            )
+            assert torch.allclose(
+                gathered[0], gathered[r], atol=1e-4, rtol=1e-4
+            ), f"Replicated gradient for {name} differs between rank 0 and rank {r}. Max diff: {(gathered[0] - gathered[r]).abs().max().item()}"
 
     _cleanup_process_group()

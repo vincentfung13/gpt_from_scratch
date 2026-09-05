@@ -29,6 +29,7 @@ def run_linear(
         Float[Tensor, "... d_out"]: The transformed output of your linear module.
     """
     from mew.nn.layers import Linear
+
     layer = Linear(d_in, d_out)
     layer.load_state_dict({"weights": weights})
     return layer(in_features)
@@ -53,6 +54,7 @@ def run_embedding(
         Float[Tensor, "... d_model"]: Batch of embeddings returned by your Embedding layer.
     """
     from mew.nn.layers import Embedding
+
     layer = Embedding(vocab_size, d_model)
     layer.load_state_dict({"weights": weights})
     return layer(token_ids)
@@ -88,6 +90,7 @@ def run_swiglu(
     # swiglu.w2.weight.data = w2_weight
     # swiglu.w3.weight.data = w3_weight
     from mew.nn.layers import SwiGLU
+
     layer = SwiGLU(d_model, d_ff)
     layer.load_state_dict({"w1": w1_weight, "w2": w2_weight, "w3": w3_weight})
     return layer(in_features)
@@ -112,6 +115,7 @@ def run_scaled_dot_product_attention(
         Float[Tensor, " ... queries d_v"]: Output of SDPA
     """
     from mew.nn.functionals import scaled_dot_product
+
     return scaled_dot_product(Q, K, V, mask=mask)
 
 
@@ -147,8 +151,19 @@ def run_multihead_self_attention(
         implementation with the given QKV projection weights and input features.
     """
     from mew.nn.transformers import CausalMultiHeadSelfAttn
-    layer = CausalMultiHeadSelfAttn(d_model=d_model, num_heads=num_heads, theta=0.1, max_seq_len=100)
-    layer.load_state_dict({"q_proj": q_proj_weight, "k_proj": k_proj_weight, "v_proj": v_proj_weight, "output_proj": o_proj_weight}, strict=False)
+
+    layer = CausalMultiHeadSelfAttn(
+        d_model=d_model, num_heads=num_heads, theta=None, max_seq_len=100
+    )
+    layer.load_state_dict(
+        {
+            "q_proj": q_proj_weight,
+            "k_proj": k_proj_weight,
+            "v_proj": v_proj_weight,
+            "output_proj": o_proj_weight,
+        },
+        strict=False,
+    )
     return layer(in_features)
 
 
@@ -190,8 +205,19 @@ def run_multihead_self_attention_with_rope(
         implementation with the given QKV projection weights and input features.
     """
     from mew.nn.transformers import CausalMultiHeadSelfAttn
-    layer = CausalMultiHeadSelfAttn(d_model=d_model, num_heads=num_heads, theta=theta, max_seq_len=max_seq_len)
-    layer.load_state_dict({"q_proj": q_proj_weight, "k_proj": k_proj_weight, "v_proj": v_proj_weight, "output_proj": o_proj_weight}, strict=False)
+
+    layer = CausalMultiHeadSelfAttn(
+        d_model=d_model, num_heads=num_heads, theta=theta, max_seq_len=max_seq_len
+    )
+    layer.load_state_dict(
+        {
+            "q_proj": q_proj_weight,
+            "k_proj": k_proj_weight,
+            "v_proj": v_proj_weight,
+            "output_proj": o_proj_weight,
+        },
+        strict=False,
+    )
     return layer(in_features, token_positions=token_positions)
 
 
@@ -215,6 +241,7 @@ def run_rope(
         Float[Tensor, " ... sequence_length d_k"]: Tensor with RoPEd input.
     """
     from mew.nn.rope import RotaryPositionalEmbedding
+
     layer = RotaryPositionalEmbedding(theta=theta, d_head=d_k, max_seq_len=max_seq_len)
     return layer(in_query_or_key, token_positions)
 
@@ -290,23 +317,24 @@ def run_transformer_block(
         running the Transformer block on the input features while using RoPE.
     """
     from mew.nn.transformers import TransformerBlock
+
     layer = TransformerBlock(
-        num_heads=num_heads,
-        d_model=d_model,
-        d_ff=d_ff,
-        theta=theta
+        num_heads=num_heads, d_model=d_model, d_ff=d_ff, theta=theta
     )
-    layer.load_state_dict({
-        "attn.q_proj": weights["attn.q_proj.weight"],
-        "attn.k_proj": weights["attn.k_proj.weight"],
-        "attn.v_proj": weights["attn.v_proj.weight"],
-        "attn.output_proj": weights["attn.output_proj.weight"],
-        "ln1.weight": weights["ln1.weight"],
-        "ffn.w1": weights["ffn.w1.weight"],
-        "ffn.w2": weights["ffn.w2.weight"],
-        "ffn.w3": weights["ffn.w3.weight"],
-        "ln2.weight": weights["ln2.weight"],
-    }, strict=False)
+    layer.load_state_dict(
+        {
+            "attn.q_proj": weights["attn.q_proj.weight"],
+            "attn.k_proj": weights["attn.k_proj.weight"],
+            "attn.v_proj": weights["attn.v_proj.weight"],
+            "attn.output_proj": weights["attn.output_proj.weight"],
+            "ln1.weight": weights["ln1.weight"],
+            "ffn.w1": weights["ffn.w1.weight"],
+            "ffn.w2": weights["ffn.w2.weight"],
+            "ffn.w3": weights["ffn.w3.weight"],
+            "ln2.weight": weights["ln2.weight"],
+        },
+        strict=False,
+    )
     return layer(in_features)
 
 
@@ -390,6 +418,7 @@ def run_transformer_lm(
         next-word distribution for each token.
     """
     from mew.nn.lm import TransformerLM
+
     lm = TransformerLM(
         d_model=d_model,
         d_ff=d_ff,
@@ -397,7 +426,7 @@ def run_transformer_lm(
         vocab_size=vocab_size,
         context_len=context_length,
         num_transformer_layers=num_layers,
-        rope_theta=rope_theta
+        rope_theta=rope_theta,
     )
 
     # Load the weights for the embedding layer
@@ -409,17 +438,21 @@ def run_transformer_lm(
         layer.attn.q_proj.data.copy_(weights[f"layers.{i}.attn.q_proj.weight"])
         layer.attn.k_proj.data.copy_(weights[f"layers.{i}.attn.k_proj.weight"])
         layer.attn.v_proj.data.copy_(weights[f"layers.{i}.attn.v_proj.weight"])
-        layer.attn.output_proj.data.copy_(weights[f"layers.{i}.attn.output_proj.weight"])
+        layer.attn.output_proj.data.copy_(
+            weights[f"layers.{i}.attn.output_proj.weight"]
+        )
 
         # RMSNorm 1
         layer.ln1.load_state_dict({"weight": weights[f"layers.{i}.ln1.weight"]})
 
         # Feed forward network (SwiGLU)
-        layer.ffn.load_state_dict({
-            "w1": weights[f"layers.{i}.ffn.w1.weight"],
-            "w2": weights[f"layers.{i}.ffn.w2.weight"],
-            "w3": weights[f"layers.{i}.ffn.w3.weight"],
-        })
+        layer.ffn.load_state_dict(
+            {
+                "w1": weights[f"layers.{i}.ffn.w1.weight"],
+                "w2": weights[f"layers.{i}.ffn.w2.weight"],
+                "w3": weights[f"layers.{i}.ffn.w3.weight"],
+            }
+        )
 
         # RMSNorm 2
         layer.ln2.load_state_dict({"weight": weights[f"layers.{i}.ln2.weight"]})
@@ -452,23 +485,10 @@ def run_rmsnorm(
         RMSNorm of the `in_features`.
     """
     from mew.nn.layers import RMSNorm
+
     layer = RMSNorm(d_model, eps)
     layer.load_state_dict({"weight": weights})
     return layer(in_features)
-
-
-def run_silu(in_features: Float[Tensor, " ..."]) -> Float[Tensor, " ..."]:
-    """Given a tensor of inputs, return the output of applying SiLU
-    to each element.
-
-    Args:
-        in_features(Float[Tensor, "..."]): Input features to run SiLU on. Shape is arbitrary.
-
-    Returns:
-        Float[Tensor,"..."]: of with the same shape as `in_features` with the output of applying
-        SiLU to each element.
-    """
-    raise NotImplementedError
 
 
 def run_get_batch(
@@ -491,7 +511,12 @@ def run_get_batch(
         is the sampled input sequences, and the second tuple item is the corresponding
         language modeling labels.
     """
-    raise NotImplementedError
+    from mew.data_loaders.numpy_batch_loader import NumpyBatchLoader
+
+    loader = NumpyBatchLoader(
+        data=dataset, batch_size=batch_size, seq_len=context_length
+    )
+    return loader.get_batch(device)
 
 
 def run_softmax(in_features: Float[Tensor, " ..."], dim: int) -> Float[Tensor, " ..."]:
@@ -508,6 +533,7 @@ def run_softmax(in_features: Float[Tensor, " ..."], dim: int) -> Float[Tensor, "
         softmax normalizing the specified `dim`.
     """
     from mew.nn.functionals import softmax
+
     return softmax(in_features, dim)
 
 
@@ -527,6 +553,7 @@ def run_cross_entropy(
         Float[Tensor, ""]: The average cross-entropy loss across examples.
     """
     from mew.nn.functionals import cross_entropy
+
     return cross_entropy(inputs, targets)
 
 
@@ -542,6 +569,7 @@ def run_gradient_clipping(
     The gradients of the parameters (parameter.grad) should be modified in-place.
     """
     from mew.optimizers.utils import clip_gradients
+
     clip_gradients(parameters=parameters, max_l2_norm=max_l2_norm)
 
 
@@ -550,6 +578,7 @@ def get_adamw_cls() -> Any:
     Returns a torch.optim.Optimizer that implements AdamW.
     """
     from mew.optimizers.adamw import AdamW
+
     return AdamW
 
 
@@ -579,12 +608,13 @@ def run_get_lr_cosine_schedule(
         Learning rate at the given iteration under the specified schedule.
     """
     from mew.optimizers.lr_scheduling import get_cosine_annealing_lr
+
     return get_cosine_annealing_lr(
         it=it,
         max_learning_rate=max_learning_rate,
         min_learning_rate=min_learning_rate,
         warmup_iters=warmup_iters,
-        cosine_cycle_iters=cosine_cycle_iters
+        cosine_cycle_iters=cosine_cycle_iters,
     )
 
 
@@ -604,7 +634,11 @@ def run_save_checkpoint(
             we've completed.
         out (str | os.PathLike | BinaryIO | IO[bytes]): Path or file-like object to serialize the model, optimizer, and iteration to.
     """
-    raise NotImplementedError
+    from mew.trainers.utils import save_checkpoint
+
+    save_checkpoint(
+        model=model, optimizer=optimizer, iteration=iteration, output_path=out
+    )
 
 
 def run_load_checkpoint(
@@ -625,7 +659,9 @@ def run_load_checkpoint(
     Returns:
         int: the previously-serialized number of iterations.
     """
-    raise NotImplementedError
+    from mew.trainers.utils import load_checkpoint
+
+    return load_checkpoint(src=src, model=model, optimizer=optimizer)
 
 
 def get_tokenizer(
@@ -681,6 +717,7 @@ def run_train_bpe(
                 Merges are ordered by order of creation.
     """
     from mew.tokenization.bpe import BPETokenizer
+
     tokenizer = BPETokenizer()
     tokenizer.train(
         input_path,

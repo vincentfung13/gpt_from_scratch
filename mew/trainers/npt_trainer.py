@@ -33,7 +33,7 @@ class NPTTrainer:
             cfg.data.seq_len,
         )
         self.train_data_loader = NumpyBatchLoader(
-            data_path=cfg.data.train_file,
+            data=cfg.data.train_file,
             seq_len=cfg.data.seq_len,
             batch_size=cfg.data.batch_size,
             is_training=True,
@@ -44,7 +44,7 @@ class NPTTrainer:
             cfg.data.seq_len,
         )
         self.val_data_loader = NumpyBatchLoader(
-            data_path=cfg.data.val_file,
+            data=cfg.data.val_file,
             seq_len=cfg.data.seq_len,
             batch_size=cfg.data.batch_size,
             is_training=False,

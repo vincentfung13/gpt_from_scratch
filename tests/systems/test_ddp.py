@@ -35,7 +35,9 @@ def test_DistributedDataParallel(model_class):
     )
 
 
-def _test_DistributedDataParallel(rank: int, world_size: int, model_class: type[torch.nn.Module]):
+def _test_DistributedDataParallel(
+    rank: int, world_size: int, model_class: type[torch.nn.Module]
+):
     # Use gloo backend for CPU
     device = _setup_process_group(rank=rank, world_size=world_size, backend="gloo")
     # Execute barrier prior to running test to ensure that every process
@@ -65,7 +67,10 @@ def _test_DistributedDataParallel(rank: int, world_size: int, model_class: type[
         ddp_model_parameter,
     ) in zip(non_parallel_model.named_parameters(), ddp_model.named_parameters()):
         # This parameter was initialized as [2, 2], so we expect its value to remain the same
-        is_no_grad_fixed_param = "no_grad_fixed_param" in ddp_model_param_name or "no_grad_fixed_param" in non_parallel_param_name
+        is_no_grad_fixed_param = (
+            "no_grad_fixed_param" in ddp_model_param_name
+            or "no_grad_fixed_param" in non_parallel_param_name
+        )
         if rank == 0 or is_no_grad_fixed_param:
             assert torch.allclose(non_parallel_model_parameter, ddp_model_parameter)
         else:
@@ -108,13 +113,22 @@ def _test_DistributedDataParallel(rank: int, world_size: int, model_class: type[
         # from the parameters of the DDP model (since we've applied the
         # gradient step to the non-parallel model, but not to the DDP model).
         if rank == 0:
-            for non_parallel_model_parameter, ddp_model_parameter in zip(non_parallel_model.parameters(), ddp_model.parameters()):
-                if non_parallel_model_parameter.requires_grad and ddp_model_parameter.requires_grad:
+            for non_parallel_model_parameter, ddp_model_parameter in zip(
+                non_parallel_model.parameters(), ddp_model.parameters()
+            ):
+                if (
+                    non_parallel_model_parameter.requires_grad
+                    and ddp_model_parameter.requires_grad
+                ):
                     # The only parameters that change are those that require_grad
-                    assert not torch.allclose(non_parallel_model_parameter, ddp_model_parameter)
+                    assert not torch.allclose(
+                        non_parallel_model_parameter, ddp_model_parameter
+                    )
                 else:
                     # parameters that don't require_grad shouldn't change
-                    assert torch.allclose(non_parallel_model_parameter, ddp_model_parameter)
+                    assert torch.allclose(
+                        non_parallel_model_parameter, ddp_model_parameter
+                    )
 
         # While the non-parallel model does a forward pass on all the data (20 examples),
         # each DDP rank only sees 10 (disjoint) examples.
@@ -134,7 +148,9 @@ def _test_DistributedDataParallel(rank: int, world_size: int, model_class: type[
 
         # At this point, the non-parallel model should exactly match the parameters of the DDP model
         if rank == 0:
-            for non_parallel_model_parameter, ddp_model_parameter in zip(non_parallel_model.parameters(), ddp_model.parameters()):
+            for non_parallel_model_parameter, ddp_model_parameter in zip(
+                non_parallel_model.parameters(), ddp_model.parameters()
+            ):
                 assert torch.allclose(non_parallel_model_parameter, ddp_model_parameter)
 
         # Shuffle the data so that during the next iteration, each DDP rank sees a different set of inputs.
@@ -147,6 +163,8 @@ def _test_DistributedDataParallel(rank: int, world_size: int, model_class: type[
     # After training is done, we should have the same weights on both the non-parallel baseline
     # and the model trained with DDP.
     if rank == 0:
-        for non_parallel_model_parameter, ddp_model_parameter in zip(non_parallel_model.parameters(), ddp_model.parameters()):
+        for non_parallel_model_parameter, ddp_model_parameter in zip(
+            non_parallel_model.parameters(), ddp_model.parameters()
+        ):
             assert torch.allclose(non_parallel_model_parameter, ddp_model_parameter)
     _cleanup_process_group()

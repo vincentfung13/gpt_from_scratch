@@ -39,7 +39,9 @@ class ToyModel(nn.Module):
         self.fc2 = _FC2()
         self.fc3 = nn.Linear(50, 10, bias=False)
         self.relu = nn.ReLU()
-        self.no_grad_fixed_param = nn.Parameter(torch.tensor([2.0, 2.0]), requires_grad=False)
+        self.no_grad_fixed_param = nn.Parameter(
+            torch.tensor([2.0, 2.0]), requires_grad=False
+        )
 
     def forward(self, x):
         x = self.relu(self.fc1(x))

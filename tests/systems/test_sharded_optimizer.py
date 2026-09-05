@@ -26,7 +26,9 @@ def test_sharded_optimizer(model_class):
     )
 
 
-def _test_sharded_optimizer(rank: int, world_size: int, model_class: Type[torch.nn.Module]):
+def _test_sharded_optimizer(
+    rank: int, world_size: int, model_class: Type[torch.nn.Module]
+):
     # Use gloo backend for CPU
     device = _setup_process_group(rank=rank, world_size=world_size, backend="gloo")
     torch.manual_seed(42)
@@ -66,7 +68,9 @@ def _test_sharded_optimizer(rank: int, world_size: int, model_class: Type[torch.
         non_sharded_model_logits = non_sharded_model(non_sharded_input)
         sharded_model_logits = sharded_model(sharded_input)
 
-        non_sharded_model_loss = ((non_sharded_labels - non_sharded_model_logits) ** 2).sum()
+        non_sharded_model_loss = (
+            (non_sharded_labels - non_sharded_model_logits) ** 2
+        ).sum()
         sharded_model_loss = ((sharded_labels - sharded_model_logits) ** 2).sum()
 
         non_sharded_model_loss.backward()
@@ -77,7 +81,9 @@ def _test_sharded_optimizer(rank: int, world_size: int, model_class: Type[torch.
 
     # Check that the final model weights are the same regardless of if we're using
     # the sharded or non-sharded optimizer.
-    for non_sharded_parameters, sharded_parameters in zip(non_sharded_model.parameters(), sharded_model.parameters()):
+    for non_sharded_parameters, sharded_parameters in zip(
+        non_sharded_model.parameters(), sharded_model.parameters()
+    ):
         numpy.testing.assert_allclose(
             non_sharded_parameters.detach().cpu().numpy(),
             sharded_parameters.detach().cpu().numpy(),

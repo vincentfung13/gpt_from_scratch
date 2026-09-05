@@ -27,9 +27,9 @@ def load_checkpoint(
     state_dicts = torch.load(src)
     model.load_state_dict(state_dicts["model"], strict=True)
     if optimizer is not None:
-        optimizer.load_state_dict(state_dicts["optimizer"], strict=True)
+        optimizer.load_state_dict(state_dicts["optimizer"])
     if lr_scheduler is not None:
-        lr_scheduler.load_state_dict(state_dicts["lr_scheduler"], strict=True)
+        lr_scheduler.load_state_dict(state_dicts["lr_scheduler"])
     iteration = state_dicts["iteration"]
     return iteration
 
