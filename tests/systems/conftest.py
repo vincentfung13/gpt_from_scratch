@@ -3,7 +3,6 @@ import numpy as np
 import pytest
 import os
 from pathlib import Path
-import torch
 from torch import Tensor
 import pickle
 
