@@ -43,6 +43,7 @@ override-dependencies = [
 log_cli = true
 log_cli_level = "WARNING"
 addopts = "-s"
+testpaths = ["tests/basics"]
 
 [tool.ruff]
 line-length = 120

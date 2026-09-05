@@ -208,3 +208,9 @@ marimo/_lsp/
 __marimo__/
 
 .DS_Store
+
+# Test run artifacts
+/pytest_bpe/
+
+# Machine-local uv config (e.g. internal package index overrides)
+/uv.toml

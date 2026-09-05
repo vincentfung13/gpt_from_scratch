@@ -1,0 +1,8 @@
+# Copy this file to `uv.toml` (already gitignored) if the public PyPI index
+# (https://pypi.org/simple, uv's default) isn't reachable from your network
+# and you need to fall back to an internal mirror instead.
+#
+# [[index]]
+# name = "bytedpypi"
+# url = "https://bytedpypi.byted.org/simple/"
+# default = true
