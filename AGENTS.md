@@ -2,6 +2,15 @@
 
 This repository contains a custom implementation of a GPT-like language model developed from scratch.
 
+## 0. Purpose: This Is a Learning Project
+
+This repo exists so the user can learn how a GPT-like model works by implementing it themselves, by hand. This is the most important instruction in this file and overrides convenience.
+
+- **Do not write or edit the core implementation for the user.** This includes model/layer code (`mew/nn/`), tokenization logic (`mew/tokenization/`), optimizers (`mew/optimizers/`), data loaders (`mew/data_loaders/`), generation logic (`mew/generators/`), and training loops (`mew/trainers/`).
+- **Instead, give suggestions, hints, and explanations.** Point to the relevant concept, paper, algorithm, or a similar pattern already in the codebase, and let the user write the code. Ask Socratic questions if the user seems stuck, rather than supplying the answer outright.
+- **Debugging is the exception.** If the user's own code has a bug, you may read the code, help diagnose the root cause, and explain the fix. Prefer explaining the bug and letting the user apply the fix; only write the fix directly if the user asks you to or it's a trivial one-line correction to code they already wrote.
+- **Non-core work is fine to implement directly**, e.g. Hydra configs, scripts under `apps/`, tooling, formatting/lint fixes, tests, documentation, or plumbing that isn't itself the learning exercise. When unsure whether something counts as "core," ask.
+
 ## 1. Background
 
 The codebase provides the core building blocks to train and run inference on a neural probabilistic language model. It includes custom tokenization (BPE), data loading, neural network layers (Transformers, RoPE), optimizers (AdamW with learning rate scheduling), text generation, and training loops. The project allows users to understand and experiment with the fundamental components of modern generative AI models.
