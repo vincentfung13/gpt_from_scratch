@@ -45,6 +45,8 @@ This project strictly uses **`uv`** for fast and reliable Python package managem
    uv sync
    ```
 
+By default this resolves packages against the public PyPI index. If you're on a network where only an internal mirror is reachable, copy `uv.toml.example` to `uv.toml` (gitignored) and fill in your mirror's URL — uv picks it up automatically, no other changes needed. Note that switching indexes and re-running `uv sync`/`uv lock` may change `uv.lock`, since the resolved package graph can differ between indexes.
+
 ## Usage
 
 You can run the application scripts using `uv run`. 

@@ -1,4 +1,5 @@
 import torch
+import os
 import numpy as np
 import logging
 from typing import Tuple
@@ -9,7 +10,7 @@ LOGGER = logging.getLogger(__name__)
 class NumpyBatchLoader:
     def __init__(
         self,
-        data_path: str,
+        data: str | os.PathLike | np.ndarray,
         seq_len: int,
         batch_size: int,
         dtype=np.uint16,
@@ -18,7 +19,10 @@ class NumpyBatchLoader:
         """
         Memory-optimized loader for massive memmap files.
         """
-        self.data = np.memmap(data_path, dtype=dtype, mode="r")
+        if isinstance(data, np.ndarray):
+            self.data = data
+        else:
+            self.data = np.memmap(data, dtype=dtype, mode="r")
         self.seq_len = seq_len
         self.batch_size = batch_size
         self.token_num = len(self.data)
@@ -30,9 +34,6 @@ class NumpyBatchLoader:
         self.num_samples = self.token_num - seq_len - 1
         # We calculate how many batches we can fit in one epoch
         self.num_batches = self.num_samples // batch_size
-        # We only store the batch count, not every index
-        self.batch_indices = np.arange(self.num_batches)
-        self.current_batch_idx = 0
 
         LOGGER.info(
             f"Mapped {self.token_num} tokens. "
@@ -41,7 +42,9 @@ class NumpyBatchLoader:
 
     def get_batch(self, device: str) -> Tuple[torch.Tensor, torch.Tensor]:
         # Sampling with replacement during training & training-time validation
-        indices = np.random.randint(0, self.num_samples, size=self.batch_size)
+        indices = np.random.randint(
+            0, len(self.data) - self.seq_len, size=self.batch_size
+        )
 
         # Efficient batch construction
         x_list, y_list = [], []

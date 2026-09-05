@@ -40,5 +40,14 @@ The architecture is cleanly separated into two main packages:
 
 - **Always format the code with** **`black`.**
 - **Check for lint errors with** **`flake8`**, but strictly ignore the "line too long" error (`E501`).
-- **Scope:** Only apply `uvx black` formatting and `uvx flake8` linting to the core packages `@mew/` and `@apps/`. Do not run them on other directories or files in the repository.
+- **Scope:** Only apply `uvx black` formatting and `uvx flake8` linting to `@mew/`, `@apps/`, and `@tests/`. Do not run them on other directories or files in the repository.
+- **Always run** styling and lint checks after making changes under `@mew/`, `@apps/`, or `@tests/`, e.g.:
+  ```bash
+  uvx black mew/ apps/ tests/
+  uvx flake8 mew/ apps/ tests/
+  ```
+
+## 5. Testing
+
+- **Always run the test suite** (`uv run pytest`) after making any code change, to make sure nothing regresses.
 

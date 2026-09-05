@@ -92,9 +92,10 @@ class CausalMultiHeadSelfAttn(nn.Module):
         init.trunc_normal_(self.output_proj, mean=0.0, std=std, a=-3 * std, b=3 * std)
 
         # Init rope
-        self.rope = RotaryPositionalEmbedding(
-            theta=theta, d_head=self.d_head, max_seq_len=max_seq_len
-        )
+        if theta is not None:
+            self.rope = RotaryPositionalEmbedding(
+                theta=theta, d_head=self.d_head, max_seq_len=max_seq_len
+            )
 
     def forward(
         self, x: torch.Tensor, token_positions: torch.Tensor = None
@@ -152,8 +153,9 @@ class CausalMultiHeadSelfAttn(nn.Module):
             # Default to absolute positions (range(seq_len))
             seq_len = x.size(-2)
             token_positions = torch.arange(seq_len, device=x.device)
-        q = self.rope(q, token_positions)
-        k = self.rope(k, token_positions)
+        if hasattr(self, "rope"):
+            q = self.rope(q, token_positions)
+            k = self.rope(k, token_positions)
 
         # Create causal mask
         # Mask shape: (seq_len, seq_len)
